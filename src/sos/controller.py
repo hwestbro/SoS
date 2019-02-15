@@ -57,6 +57,21 @@ def request_answer_from_controller(msg):
     env.master_request_socket.send_pyobj(msg)
     return env.master_request_socket.recv_pyobj()
 
+def ping_master():
+    env.logger.trace(f"starting to ping master at socket {env.config['sockets']['master_ping']} on {os.getpid()}")
+    while True:
+        env.logger.error(f'send ping from {os.getpid()} at {time.time()}')
+        env.master_ping_socket.send(b'PING')
+        # wait for two seconds for a reply
+        if env.master_ping_socket.poll(20000):
+            msg = env.master_ping_socket.recv()
+            if msg != b'PONG':
+                raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
+        else:
+            raise RuntimeError(f'No reply from master received in two seconds, the master might have died.')
+        time.sleep(1)
+
+
 def connect_controllers(context=None):
     if not context:
         env.logger.trace(f'create context at {os.getpid()}')
@@ -66,6 +81,10 @@ def connect_controllers(context=None):
 
     env.master_push_socket = None
     env.master_request_socket = None
+
+    env.master_ping_socket = create_socket(env.zmq_context, zmq.REQ, 'master request')
+    env.master_ping_socket.connect(
+        f'tcp://127.0.0.1:{env.config["sockets"]["master_ping"]}')
 
     # if this instance of sos is being tapped. It should connect to a few sockets
     #
@@ -82,12 +101,16 @@ def connect_controllers(context=None):
         env.tapping_listener_socket.connect(
             f'tcp://127.0.0.1:{env.config["sockets"]["tapping_listener"]}')
 
+    # start sending ping message in a separate thread
+    env.ping_thread = threading.Thread(target=ping_master)
+    env.ping_thread.start()
     return context
 
 
 def disconnect_controllers(context=None):
     close_socket(env.master_push_socket, now=True)
     close_socket(env.master_request_socket, now=True)
+    close_socket(env.master_ping_socket, now=True)
 
     if env.config['exec_mode'] == 'slave':
         close_socket(env.tapping_logging_socket, now=True)
@@ -419,6 +442,18 @@ class Controller(threading.Thread):
     def handle_tapping_controller_msg(self, msg):
         self.tapping_controller_socket.send(b'ok')
 
+    def reply_ping_msg(self):
+        env.logger.trace(f"starting to reply ping msg at socket {env.config['sockets']['master_ping']} on {os.getpid()}")
+        while True:
+            res = self.master_ping_socket.poll()
+            env.logger.error(f'I am running {time.time()} {res}')
+            if res:
+                msg = self.master_ping_socket.recv()
+                env.logger.error(f'recv ping at {time.time()}')
+                self.master_ping_socket.send(b'PONG')   
+                env.logger.error(f'replied at {time.time()}')
+
+
     def run(self):
         # there are two sockets
         #
@@ -435,6 +470,12 @@ class Controller(threading.Thread):
         self.master_request_socket = create_socket(self.context, zmq.REP, 'controller master_request')
         env.config['sockets']['master_request'] = self.master_request_socket.bind_to_random_port(
             'tcp://127.0.0.1')
+        self.master_ping_socket = create_socket(self.context, zmq.REP, 'controller master_ping')
+        env.config['sockets']['master_ping'] = self.master_ping_socket.bind_to_random_port(
+            'tcp://127.0.0.1')
+
+        self.pong_thread = threading.Thread(target=self.reply_ping_msg)
+        self.pong_thread.start()
 
         # broker to handle the execution of substeps
         self.substep_backend_socket = create_socket(self.context, zmq.REP, 'controller backend rep')  # ROUTER
@@ -483,7 +524,6 @@ class Controller(threading.Thread):
         try:
             while True:
                 socks = dict(poller.poll())
-
                 if self.master_push_socket in socks:
                     while True:
                         if self.master_push_socket.poll(0):
@@ -559,6 +599,7 @@ class Controller(threading.Thread):
 
             close_socket(self.master_push_socket, now=True)
             close_socket(self.master_request_socket, now=True)
+            close_socket(self.master_ping_socket, now=True)
             close_socket(self.substep_backend_socket, now=True)
 
             if env.config['exec_mode'] == 'master':
