@@ -7,7 +7,6 @@ import sys
 import zmq
 import time
 import threading
-
 from collections import defaultdict
 from .utils import env
 from .signatures import StepSignatures, WorkflowSignatures
@@ -58,7 +57,6 @@ def request_answer_from_controller(msg):
     env.master_request_socket.send_pyobj(msg)
     return env.master_request_socket.recv_pyobj()
 
-
 def connect_controllers(context=None):
     if not context:
         env.logger.trace(f'create context at {os.getpid()}')
@@ -68,7 +66,6 @@ def connect_controllers(context=None):
 
     env.master_push_socket = None
     env.master_request_socket = None
-    env.master_ping_socket = None
 
     env.ping_thread = PingThread(context)
     env.ping_thread.start()
@@ -102,7 +99,7 @@ def disconnect_controllers(context=None):
     if env.config['exec_mode'] in ('master', 'slave'):
         close_socket(env.tapping_listener_socket, now=True)
 
-    env.logger.error(f'Disconnecting sockets from {os.getpid()}')
+    env.logger.trace(f'Disconnecting sockets from {os.getpid()}')
 
     env.ping_thread.join()
 
