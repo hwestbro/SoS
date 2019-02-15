@@ -90,7 +90,6 @@ class ProcessMonitor(threading.Thread):
                     p.kill()
                 # most of the time we only update
                 if counter % self.resource_monitor_interval:
-                    env.logger.error(f'moniting {time.time():.1f}')
                     os.utime(self.pulse_file, None)
                 else:
                     cpu, mem, nch, ch_cpu, ch_mem = self._check()

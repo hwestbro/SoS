@@ -7,6 +7,7 @@ import sys
 import zmq
 import time
 import threading
+
 from collections import defaultdict
 from .utils import env
 from .signatures import StepSignatures, WorkflowSignatures
@@ -57,20 +58,6 @@ def request_answer_from_controller(msg):
     env.master_request_socket.send_pyobj(msg)
     return env.master_request_socket.recv_pyobj()
 
-def ping_master():
-    env.logger.trace(f"starting to ping master at socket {env.config['sockets']['master_ping']} on {os.getpid()}")
-    while True:
-        env.logger.error(f'send ping from {os.getpid()} at {time.time()}')
-        env.master_ping_socket.send(b'PING')
-        # wait for two seconds for a reply
-        if env.master_ping_socket.poll(20000):
-            msg = env.master_ping_socket.recv()
-            if msg != b'PONG':
-                raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
-        else:
-            raise RuntimeError(f'No reply from master received in two seconds, the master might have died.')
-        time.sleep(1)
-
 
 def connect_controllers(context=None):
     if not context:
@@ -81,10 +68,10 @@ def connect_controllers(context=None):
 
     env.master_push_socket = None
     env.master_request_socket = None
+    env.master_ping_socket = None
 
-    env.master_ping_socket = create_socket(env.zmq_context, zmq.REQ, 'master request')
-    env.master_ping_socket.connect(
-        f'tcp://127.0.0.1:{env.config["sockets"]["master_ping"]}')
+    env.ping_thread = PingThread(context)
+    env.ping_thread.start()
 
     # if this instance of sos is being tapped. It should connect to a few sockets
     #
@@ -101,16 +88,12 @@ def connect_controllers(context=None):
         env.tapping_listener_socket.connect(
             f'tcp://127.0.0.1:{env.config["sockets"]["tapping_listener"]}')
 
-    # start sending ping message in a separate thread
-    env.ping_thread = threading.Thread(target=ping_master)
-    env.ping_thread.start()
     return context
 
 
 def disconnect_controllers(context=None):
     close_socket(env.master_push_socket, now=True)
     close_socket(env.master_request_socket, now=True)
-    close_socket(env.master_ping_socket, now=True)
 
     if env.config['exec_mode'] == 'slave':
         close_socket(env.tapping_logging_socket, now=True)
@@ -119,7 +102,9 @@ def disconnect_controllers(context=None):
     if env.config['exec_mode'] in ('master', 'slave'):
         close_socket(env.tapping_listener_socket, now=True)
 
-    env.logger.trace(f'Disconnecting sockets from {os.getpid()}')
+    env.logger.error(f'Disconnecting sockets from {os.getpid()}')
+
+    env.ping_thread.join()
 
     if context:
         env.logger.trace(f'terminate context at {os.getpid()}')
@@ -213,6 +198,41 @@ class DotProgressBar:
     def done(self, msg):
         self.update('done', msg)
         self.stop_event.set()
+
+class PingThread(threading.Thread):
+    '''A thread to send ping message to controller and expects
+    a pong reply'''
+    def __init__(self, context):
+        self._stopevent = threading.Event()
+        self.context = context
+        threading.Thread.__init__(self)
+
+    def run(self):
+        ping_socket = create_socket(self.context, zmq.REQ, 'master ping')
+        ping_socket.connect(f'tcp://127.0.0.1:{env.config["sockets"]["master_ping"]}')
+
+        while not self._stopevent.is_set():
+            try:
+                ret = ping_socket.send(b'PING')
+            except:
+                env.logger.warning(f'failed to send ping msg from {os.getpid()}')
+                break
+            # wait for 20 seconds for a reply
+            if ping_socket.poll(20000):
+                msg = ping_socket.recv()
+                if msg != b'PONG':
+                    raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
+            elif self._stopevent.set():
+                break
+            else:
+                raise RuntimeError(f'Master inactive for 20 seconds. Killing myself.')
+            time.sleep(1)
+
+        close_socket(ping_socket, f'ping socket on {os.getpid()}', now=True)
+
+    def join(self, timeout=None):
+        self._stopevent.set()
+        threading.Thread.join(self, timeout)
 
 class Controller(threading.Thread):
     '''This controller is used by both sos and sos-notebook, and there
@@ -442,17 +462,8 @@ class Controller(threading.Thread):
     def handle_tapping_controller_msg(self, msg):
         self.tapping_controller_socket.send(b'ok')
 
-    def reply_ping_msg(self):
-        env.logger.trace(f"starting to reply ping msg at socket {env.config['sockets']['master_ping']} on {os.getpid()}")
-        while True:
-            res = self.master_ping_socket.poll()
-            env.logger.error(f'I am running {time.time()} {res}')
-            if res:
-                msg = self.master_ping_socket.recv()
-                env.logger.error(f'recv ping at {time.time()}')
-                self.master_ping_socket.send(b'PONG')   
-                env.logger.error(f'replied at {time.time()}')
-
+    def handle_master_ping_msg(self, msg):
+        ret = self.master_ping_socket.send(b'PONG')
 
     def run(self):
         # there are two sockets
@@ -473,9 +484,6 @@ class Controller(threading.Thread):
         self.master_ping_socket = create_socket(self.context, zmq.REP, 'controller master_ping')
         env.config['sockets']['master_ping'] = self.master_ping_socket.bind_to_random_port(
             'tcp://127.0.0.1')
-
-        self.pong_thread = threading.Thread(target=self.reply_ping_msg)
-        self.pong_thread.start()
 
         # broker to handle the execution of substeps
         self.substep_backend_socket = create_socket(self.context, zmq.REP, 'controller backend rep')  # ROUTER
@@ -510,6 +518,8 @@ class Controller(threading.Thread):
         poller.register(self.master_push_socket, zmq.POLLIN)
         poller.register(self.master_request_socket, zmq.POLLIN)
         poller.register(self.substep_backend_socket, zmq.POLLIN)
+        poller.register(self.master_ping_socket, zmq.POLLIN)
+
         if env.config['exec_mode'] == 'master':
             poller.register(self.tapping_logging_socket, zmq.POLLIN)
             poller.register(self.tapping_listener_socket, zmq.POLLIN)
@@ -529,6 +539,13 @@ class Controller(threading.Thread):
                         if self.master_push_socket.poll(0):
                             self.handle_master_push_msg(
                                 self.master_push_socket.recv_pyobj())
+                        else:
+                            break
+
+                if self.master_ping_socket in socks:
+                    while True:
+                        if self.master_ping_socket.poll(0):
+                            self.handle_master_ping_msg(self.master_ping_socket.recv())
                         else:
                             break
 
@@ -591,6 +608,7 @@ class Controller(threading.Thread):
             poller.unregister(self.master_push_socket)
             poller.unregister(self.master_request_socket)
             poller.unregister(self.substep_backend_socket)
+            poller.unregister(self.master_ping_socket)
             if env.config['exec_mode'] == 'master':
                 poller.unregister(self.tapping_logging_socket)
                 poller.unregister(self.tapping_listener_socket)
