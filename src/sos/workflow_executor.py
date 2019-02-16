@@ -206,6 +206,11 @@ class ExecutionManager(object):
             for proc in self.procs + self.pool:
                 proc.socket.send_pyobj(None)
                 close_socket(proc.socket, now=True)
+            time.sleep(0.1)
+            for proc in self.procs + self.pool:
+                if proc.worker and proc.worker.is_alive():
+                    proc.worker.terminate()
+                    proc.worker.join()
         else:
             for proc in self.procs + self.pool:
                 # proc can be fake if from a nested workflow
