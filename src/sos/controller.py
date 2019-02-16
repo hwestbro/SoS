@@ -67,9 +67,6 @@ def connect_controllers(context=None):
     env.master_push_socket = None
     env.master_request_socket = None
 
-    env.ping_thread = PingThread(context)
-    env.ping_thread.start()
-
     # if this instance of sos is being tapped. It should connect to a few sockets
     #
     if env.config['exec_mode'] == 'slave':
@@ -100,8 +97,6 @@ def disconnect_controllers(context=None):
         close_socket(env.tapping_listener_socket, now=True)
 
     env.logger.trace(f'Disconnecting sockets from {os.getpid()}')
-
-    env.ping_thread.join()
 
     if context:
         env.logger.trace(f'terminate context at {os.getpid()}')
@@ -195,48 +190,6 @@ class DotProgressBar:
     def done(self, msg):
         self.update('done', msg)
         self.stop_event.set()
-
-class PingThread(threading.Thread):
-    '''A thread to send ping message to controller and expects
-    a pong reply'''
-    def __init__(self, context):
-        self._stopping = threading.Event()
-        self._stopped = threading.Event()
-        self.context = context
-        threading.Thread.__init__(self)
-
-    def run(self):
-        ping_socket = create_socket(self.context, zmq.REQ, 'master ping')
-        ping_socket.connect(f'tcp://127.0.0.1:{env.config["sockets"]["master_ping"]}')
-
-        while not self._stopping.is_set():
-            try:
-                ret = ping_socket.send(b'PING')
-            except:
-                env.logger.warning(f'failed to send ping msg from {os.getpid()}')
-                break
-            cnt = 0
-            while cnt < 20:
-                if self._stopping.is_set():
-                    break
-                time.sleep(1)
-            if self._stopping.is_set():
-                break
-            elif ping_socket.poll(0):
-                msg = ping_socket.recv()
-                if msg != b'PONG':
-                    raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
-            else:
-                raise RuntimeError(f'Master inactive for 20 seconds. Killing myself.')
-            time.sleep(1)
-
-        close_socket(ping_socket, f'ping socket on {os.getpid()}', now=True)
-        self._stopped.set()
-
-    def join(self, timeout=None):
-        self._stopping.set()
-        self._stopped.wait()
-        threading.Thread.join(self, timeout)
 
 class Controller(threading.Thread):
     '''This controller is used by both sos and sos-notebook, and there
@@ -466,9 +419,6 @@ class Controller(threading.Thread):
     def handle_tapping_controller_msg(self, msg):
         self.tapping_controller_socket.send(b'ok')
 
-    def handle_master_ping_msg(self, msg):
-        ret = self.master_ping_socket.send(b'PONG')
-
     def run(self):
         # there are two sockets
         #
@@ -484,9 +434,6 @@ class Controller(threading.Thread):
             'tcp://127.0.0.1')
         self.master_request_socket = create_socket(self.context, zmq.REP, 'controller master_request')
         env.config['sockets']['master_request'] = self.master_request_socket.bind_to_random_port(
-            'tcp://127.0.0.1')
-        self.master_ping_socket = create_socket(self.context, zmq.REP, 'controller master_ping')
-        env.config['sockets']['master_ping'] = self.master_ping_socket.bind_to_random_port(
             'tcp://127.0.0.1')
 
         # broker to handle the execution of substeps
@@ -522,7 +469,6 @@ class Controller(threading.Thread):
         poller.register(self.master_push_socket, zmq.POLLIN)
         poller.register(self.master_request_socket, zmq.POLLIN)
         poller.register(self.substep_backend_socket, zmq.POLLIN)
-        poller.register(self.master_ping_socket, zmq.POLLIN)
 
         if env.config['exec_mode'] == 'master':
             poller.register(self.tapping_logging_socket, zmq.POLLIN)
@@ -543,13 +489,6 @@ class Controller(threading.Thread):
                         if self.master_push_socket.poll(0):
                             self.handle_master_push_msg(
                                 self.master_push_socket.recv_pyobj())
-                        else:
-                            break
-
-                if self.master_ping_socket in socks:
-                    while True:
-                        if self.master_ping_socket.poll(0):
-                            self.handle_master_ping_msg(self.master_ping_socket.recv())
                         else:
                             break
 
@@ -612,7 +551,6 @@ class Controller(threading.Thread):
             poller.unregister(self.master_push_socket)
             poller.unregister(self.master_request_socket)
             poller.unregister(self.substep_backend_socket)
-            poller.unregister(self.master_ping_socket)
             if env.config['exec_mode'] == 'master':
                 poller.unregister(self.tapping_logging_socket)
                 poller.unregister(self.tapping_listener_socket)
@@ -621,7 +559,6 @@ class Controller(threading.Thread):
 
             close_socket(self.master_push_socket, now=True)
             close_socket(self.master_request_socket, now=True)
-            close_socket(self.master_ping_socket, now=True)
             close_socket(self.substep_backend_socket, now=True)
 
             if env.config['exec_mode'] == 'master':
