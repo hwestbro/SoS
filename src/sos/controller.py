@@ -200,7 +200,8 @@ class PingThread(threading.Thread):
     '''A thread to send ping message to controller and expects
     a pong reply'''
     def __init__(self, context):
-        self._stopevent = threading.Event()
+        self._stopping = threading.Event()
+        self._stopped = threading.Event()
         self.context = context
         threading.Thread.__init__(self)
 
@@ -208,27 +209,33 @@ class PingThread(threading.Thread):
         ping_socket = create_socket(self.context, zmq.REQ, 'master ping')
         ping_socket.connect(f'tcp://127.0.0.1:{env.config["sockets"]["master_ping"]}')
 
-        while not self._stopevent.is_set():
+        while not self._stopping.is_set():
             try:
                 ret = ping_socket.send(b'PING')
             except:
                 env.logger.warning(f'failed to send ping msg from {os.getpid()}')
                 break
-            # wait for 20 seconds for a reply
-            if ping_socket.poll(20000):
+            cnt = 0
+            while cnt < 20:
+                if self._stopping.is_set():
+                    break
+                time.sleep(1)
+            if self._stopping.is_set():
+                break
+            elif ping_socket.poll(0):
                 msg = ping_socket.recv()
                 if msg != b'PONG':
                     raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
-            elif self._stopevent.set():
-                break
             else:
                 raise RuntimeError(f'Master inactive for 20 seconds. Killing myself.')
             time.sleep(1)
 
         close_socket(ping_socket, f'ping socket on {os.getpid()}', now=True)
+        self._stopped.set()
 
     def join(self, timeout=None):
-        self._stopevent.set()
+        self._stopping.set()
+        self._stopped.wait()
         threading.Thread.join(self, timeout)
 
 class Controller(threading.Thread):
