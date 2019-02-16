@@ -61,6 +61,7 @@ class PingThread(threading.Thread):
                         raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
                     received = True
                     break
+                cnt += 1
             if received:
                 continue
 
