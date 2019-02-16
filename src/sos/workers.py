@@ -48,11 +48,14 @@ class PingThread(threading.Thread):
                 break
             received = False
             cnt = 0
-            while cnt < 20:
-                time.sleep(1)
+            while cnt < 2000:
+                # finer grain sleep so that the thread can respond quicker
+                time.sleep(0.01)
                 if self._stopping.is_set():
                     break
-                if ping_socket.poll(0):
+                # we wait at least 2 seconds to check reply so that
+                # we do not send too many signals to the master
+                if cnt > 200 and ping_socket.poll(0):
                     msg = ping_socket.recv()
                     if msg != b'PONG':
                         raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
