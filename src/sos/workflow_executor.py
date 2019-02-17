@@ -131,15 +131,15 @@ class ExecutionManager(object):
         self.executor_ping_socket = None
 
     def execute(self, runnable: Union[SoS_Node, dummy_node], config: Dict[str, Any], args: Any, spec: Any) -> None:
-        if self.executor_ping_socket is None:
-            self.executor_ping_socket = create_socket(env.zmq_context, zmq.REP, 'executor master_ping')
-            self.executor_ping_port = self.executor_ping_socket.bind_to_random_port(
-                'tcp://127.0.0.1')
+        # if self.executor_ping_socket is None:
+        #     self.executor_ping_socket = create_socket(env.zmq_context, zmq.REP, 'executor master_ping')
+        #     self.executor_ping_port = self.executor_ping_socket.bind_to_random_port(
+        #         'tcp://127.0.0.1')
 
         if not self.pool:
             socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
             port = socket.bind_to_random_port('tcp://127.0.0.1')
-            config['sockets']['executor_ping'] = self.executor_ping_port
+            # config['sockets']['executor_ping'] = self.executor_ping_port
             worker = SoS_Worker(port=port, config=config, args=args)
             worker.start()
         else:
@@ -1052,7 +1052,7 @@ class Base_Executor:
             exec_error = ExecuteError(self.workflow.name)
             while True:
                 # step 0: check the health of workers
-                manager.check_workers()
+                # manager.check_workers()
 
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
@@ -1061,12 +1061,13 @@ class Base_Executor:
 
                     # echck if there is any message from the socket
                     if not proc.socket.poll(0):
-                        if proc.is_alive():
-                            continue
-                        else:
-                            raise RuntimeError('Worker seems to have died.')
-                    else:
-                        proc.mark_alive()
+                    #     if proc.is_alive():
+                    #         continue
+                    #     else:
+                    #         raise RuntimeError('Worker seems to have died.')
+                    # else:
+                    #     proc.mark_alive()
+                        continue
 
                     # receieve something from the pipe
                     res = proc.socket.recv_pyobj()

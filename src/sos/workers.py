@@ -149,8 +149,8 @@ class SoS_Worker(mp.Process):
         env.master_socket = create_socket(env.zmq_context, zmq.PAIR)
         env.master_socket.connect(f'tcp://127.0.0.1:{self.port}')
 
-        self.ping_thread = PingThread(env.zmq_context)
-        self.ping_thread.start()
+        # self.ping_thread = PingThread(env.zmq_context)
+        # self.ping_thread.start()
 
         # wait to handle jobs
         while True:
@@ -174,7 +174,7 @@ class SoS_Worker(mp.Process):
             except KeyboardInterrupt:
                 break
         # Finished
-        self.ping_thread.join()
+        # self.ping_thread.join()
         close_socket(env.master_socket, now=True)
         disconnect_controllers(env.zmq_context)
 
