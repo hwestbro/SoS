@@ -206,11 +206,12 @@ class ExecutionManager(object):
             proc.socket.send_pyobj(None)
             close_socket(proc.socket, now=True)
         cnt = 0
-        while cnt < 500:
+        while cnt < 20:
             # wait at most 5 second for all processes to be
             # finished by themselves.
             if any(x.worker.is_alive() for x in self.procs + self.pool if x.worker is not None):
-                time.sleep(0.01)
+                time.sleep(0.1)
+                cnt += 1
             else:
                 return
         # if the workers cannot kill themselves, give a warning
