@@ -27,60 +27,60 @@ from .utils import (WorkflowDict, env, get_traceback, load_config_files,
 class ProcessKilled(Exception):
     pass
 
-class PingThread(threading.Thread):
-    '''A thread to send ping message to controller and expects
-    a pong reply'''
-    def __init__(self, context):
-        self._stopping = threading.Event()
-        self._stopped = threading.Event()
-        self.context = context
-        threading.Thread.__init__(self)
+# class PingThread(threading.Thread):
+#     '''A thread to send ping message to controller and expects
+#     a pong reply'''
+#     def __init__(self, context):
+#         self._stopping = threading.Event()
+#         self._stopped = threading.Event()
+#         self.context = context
+#         threading.Thread.__init__(self)
 
-    def run(self):
-        ping_socket = create_socket(self.context, zmq.REQ, 'master ping')
-        ping_socket.connect(f'tcp://127.0.0.1:{env.config["sockets"]["executor_ping"]}')
+#     def run(self):
+#         ping_socket = create_socket(self.context, zmq.REQ, 'master ping')
+#         ping_socket.connect(f'tcp://127.0.0.1:{env.config["sockets"]["executor_ping"]}')
 
-        while not self._stopping.is_set():
-            try:
-                ret = ping_socket.send_pyobj(os.getpid())
-            except:
-                env.logger.warning(f'failed to send ping msg from {os.getpid()}')
-                break
-            received = False
-            cnt = 0
-            while cnt < 2000:
-                # finer grain sleep so that the thread can respond quicker
-                time.sleep(0.01)
-                if self._stopping.is_set():
-                    break
-                # we wait at least 2 seconds to check reply so that
-                # we do not send too many signals to the master
-                if cnt > 200 and ping_socket.poll(0):
-                    msg = ping_socket.recv()
-                    if msg != b'PONG':
-                        raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
-                    received = True
-                    break
-                cnt += 1
-            if received:
-                continue
+#         while not self._stopping.is_set():
+#             try:
+#                 ret = ping_socket.send_pyobj(os.getpid())
+#             except:
+#                 env.logger.warning(f'failed to send ping msg from {os.getpid()}')
+#                 break
+#             received = False
+#             cnt = 0
+#             while cnt < 2000:
+#                 # finer grain sleep so that the thread can respond quicker
+#                 time.sleep(0.01)
+#                 if self._stopping.is_set():
+#                     break
+#                 # we wait at least 2 seconds to check reply so that
+#                 # we do not send too many signals to the master
+#                 if cnt > 200 and ping_socket.poll(0):
+#                     msg = ping_socket.recv()
+#                     if msg != b'PONG':
+#                         raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
+#                     received = True
+#                     break
+#                 cnt += 1
+#             if received:
+#                 continue
 
-            if self._stopping.is_set():
-                break
-            elif ping_socket.poll(0):
-                msg = ping_socket.recv()
-                if msg != b'PONG':
-                    raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
-            else:
-                raise RuntimeError(f'Master inactive for 20 seconds. Killing myself.')
+#             if self._stopping.is_set():
+#                 break
+#             elif ping_socket.poll(0):
+#                 msg = ping_socket.recv()
+#                 if msg != b'PONG':
+#                     raise RuntimeError(f'Unrecognized reply from ping/pong socket: {msg}')
+#             else:
+#                 raise RuntimeError(f'Master inactive for 20 seconds. Killing myself.')
 
-        close_socket(ping_socket, f'ping socket on {os.getpid()}', now=True)
-        self._stopped.set()
+#         close_socket(ping_socket, f'ping socket on {os.getpid()}', now=True)
+#         self._stopped.set()
 
-    def join(self, timeout=None):
-        self._stopping.set()
-        self._stopped.wait()
-        threading.Thread.join(self, timeout)
+#     def join(self, timeout=None):
+#         self._stopping.set()
+#         self._stopped.wait()
+#         threading.Thread.join(self, timeout)
 
 
 def signal_handler(*args, **kwargs):

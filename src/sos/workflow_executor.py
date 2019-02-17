@@ -80,22 +80,22 @@ class ProcInfo(object):
         self.worker = worker
         self.socket = socket
         self.step = step
-        self._last_active_time = None
+        # self._last_active_time = None
 
     def set_status(self, status: str) -> None:
         self.step._status = status
 
-    def mark_alive(self):
-        self._last_active_time = time.time()
+    # def mark_alive(self):
+    #     self._last_active_time = time.time()
 
-    def is_alive(self):
-        if self._last_active_time is None:
-            # if no feedback, the child is still starting, ok
-            return True
-        elif time.time() - self._last_active_time > 20:
-            return False
-        else:
-            return True
+    # def is_alive(self):
+    #     if self._last_active_time is None:
+    #         # if no feedback, the child is still starting, ok
+    #         return True
+    #     elif time.time() - self._last_active_time > 20:
+    #         return False
+    #     else:
+    #         return True
 
     def in_status(self, status: str) -> bool:
         return self.step._status == status
@@ -122,13 +122,13 @@ class ExecutionManager(object):
         #       created on the fly for steps passed from nested workflow
         #
         self.procs = []
-        self._pid_map = {}
+        # self._pid_map = {}
 
         # process pool that is used to pool temporarily unused processed.
         self.pool = []
         self.max_workers = max_workers
 
-        self.executor_ping_socket = None
+        # self.executor_ping_socket = None
 
     def execute(self, runnable: Union[SoS_Node, dummy_node], config: Dict[str, Any], args: Any, spec: Any) -> None:
         # if self.executor_ping_socket is None:
@@ -154,20 +154,20 @@ class ExecutionManager(object):
         socket.send_pyobj(spec)
         self.procs.append(
             ProcInfo(worker=worker, socket=socket, step=runnable))
-        self._pid_map[worker.pid] = self.procs[-1]
+        # self._pid_map[worker.pid] = self.procs[-1]
 
-    def check_workers(self):
-        '''check the ping socket and see if the workers are alive'''
-        if self.executor_ping_socket is None:
-            return
-        while True:
-            if self.executor_ping_socket.poll(0):
-                res = self.executor_ping_socket.recv_pyobj()
-                if res in self._pid_map:
-                    self._pid_map[res].mark_alive()
-                self.executor_ping_socket.send(b'PONG')
-            else:
-                break
+    # def check_workers(self):
+    #     '''check the ping socket and see if the workers are alive'''
+    #     if self.executor_ping_socket is None:
+    #         return
+    #     while True:
+    #         if self.executor_ping_socket.poll(0):
+    #             res = self.executor_ping_socket.recv_pyobj()
+    #             if res in self._pid_map:
+    #                 self._pid_map[res].mark_alive()
+    #             self.executor_ping_socket.send(b'PONG')
+    #         else:
+    #             break
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
@@ -199,8 +199,8 @@ class ExecutionManager(object):
 
     def terminate(self, brutal: bool = False) -> None:
         self.cleanup()
-        if self.executor_ping_socket is not None:
-            close_socket(self.executor_ping_socket, 'ping socket', now=True)
+        # if self.executor_ping_socket is not None:
+        #     close_socket(self.executor_ping_socket, 'ping socket', now=True)
 
         for proc in self.procs + self.pool:
             proc.socket.send_pyobj(None)
@@ -209,7 +209,7 @@ class ExecutionManager(object):
         while cnt < 500:
             # wait at most 5 second for all processes to be
             # finished by themselves.
-            if any(x.is_alive() for x in self.procs + self.pool if x.worker is not None):
+            if any(x.worker.is_alive() for x in self.procs + self.pool if x.worker is not None):
                 time.sleep(0.01)
             else:
                 return
