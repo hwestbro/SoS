@@ -29,10 +29,8 @@ class SoS_Worker(mp.Process):
     Worker process to process SoS step or workflow in separate process.
     '''
 
-    def __init__(self, port: int, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
+    def __init__(self, ctrl_port: int, port: int, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
         '''
-        cmd_queue: a single direction queue for the master process to push
-            items to the worker.
 
         config:
             values for command line options
@@ -48,6 +46,7 @@ class SoS_Worker(mp.Process):
         # the worker process knows configuration file, command line argument etc
         super(SoS_Worker, self).__init__(**kwargs)
         #
+        self.ctrl_port = ctrl_port
         self.port = port
         self.config = config
 
@@ -77,9 +76,12 @@ class SoS_Worker(mp.Process):
                     env.sos_dict.set(key, value)
 
     def run(self):
+        env.ctrl_socket = create_socket(env.zmq_context, zmq.PAIR)
+        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.ctrl_port}')
+        self._run()
 
+    def _run(self):
         # env.logger.warning(f'Worker created {os.getpid()}')
-
         env.config.update(self.config)
         env.zmq_context = connect_controllers()
         signal.signal(signal.SIGTERM, signal_handler)

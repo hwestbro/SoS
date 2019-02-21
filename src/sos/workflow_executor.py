@@ -76,8 +76,9 @@ class dummy_node:
 
 
 class ProcInfo(object):
-    def __init__(self, worker: SoS_Worker, socket, step: Union[SoS_Node, dummy_node]) -> None:
+    def __init__(self, worker: SoS_Worker, ctrl_socket, socket, step: Union[SoS_Node, dummy_node]) -> None:
         self.worker = worker
+        self.ctrl_socket = ctrl_socket
         self.socket = socket
         self.step = step
         self._last_alive = time.time()
@@ -125,15 +126,24 @@ class ExecutionManager(object):
         self.pool = []
         self.max_workers = max_workers
 
+        # steps sent and queued from the nested workflow
+        # they will be executed in random but at a higher priority than the steps
+        # on the master process.
+        self.step_queue = {}
+
     def execute(self, runnable: Union[SoS_Node, dummy_node], config: Dict[str, Any], args: Any, spec: Any) -> None:
         if not self.pool:
+            ctrl_socket = create_socket(env.zmq_context, zmq.PAIR, 'ctrl socket for step worker')
+            ctrl_port = ctrl_socket.bind_to_random_port('tcp://127.0.0.1')
+
             socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
             port = socket.bind_to_random_port('tcp://127.0.0.1')
-            worker = SoS_Worker(port=port, config=config, args=args)
+            worker = SoS_Worker(ctrl_port=ctrl_port, port=port, config=config, args=args)
             worker.start()
         else:
             pi = self.pool.pop(0)
             worker = pi.worker
+            ctrl_socket = pi.ctrl_socket
             socket = pi.socket
 
         # we need to report number of active works, plus master process itself
@@ -141,11 +151,35 @@ class ExecutionManager(object):
 
         socket.send_pyobj(spec)
         self.procs.append(
-            ProcInfo(worker=worker, socket=socket, step=runnable))
+            ProcInfo(worker=worker, ctrl_socket=socket, socket=socket, step=runnable))
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
-        self.procs.append(ProcInfo(worker=None, socket=socket, step=runnable))
+        self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, step=runnable))
+
+    def push_to_step_queue(self, step_id, params):
+        self.step_queue[step_id] = step_params
+
+    def execute_queued_step(self):
+        if not self.step_queue:
+            return False
+        step_id, step_param = self.step_queue.popitem()
+        section, context, shared, args, config, verbosity, port = step_param
+        # run it!
+        runnable = dummy_node()
+        runnable._node_id = step_id
+        runnable._status = 'running'
+        dag.save(env.config['output_dag'])
+        runnable._from_nested = True
+        runnable._child_socket = create_socket(env.zmq_context, zmq.PAIR, 'child socket for dummy')
+        runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
+
+        env.logger.debug(
+            f'{i_am()} sends {section.step_name()} from step queue with args {args} and context {context}')
+
+        self.execute(runnable, config=env.config, args=self.args,
+                        spec=('step', section, context, shared, args, config, verbosity))
+        return True
 
     def num_active(self) -> int:
         return len([x for x in self.procs if x and not x.is_pending()
@@ -1022,10 +1056,6 @@ class Base_Executor:
         # manager of processes
         manager = ExecutionManager(env.config['max_procs'])
         #
-        # steps sent and queued from the nested workflow
-        # they will be executed in random but at a higher priority than the steps
-        # on the master process.
-        self.step_queue = {}
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
@@ -1134,7 +1164,7 @@ class Base_Executor:
                             step_params = res[2:]
                             env.logger.debug(
                                 f'{i_am()} receives step request {step_id} with args {step_params[3]}')
-                            self.step_queue[step_id] = step_params
+                            manager.push_to_step_queue(step_id, step_params)
                         elif res[0] == 'workflow':
                             workflow_ids, wfs, targets, args, shared, config = res[1:]
                             # receive the real definition
@@ -1274,23 +1304,7 @@ class Base_Executor:
                         break
                     #
                     # if steps from child nested workflow?
-                    if self.step_queue:
-                        step_id, step_param = self.step_queue.popitem()
-                        section, context, shared, args, config, verbosity, port = step_param
-                        # run it!
-                        runnable = dummy_node()
-                        runnable._node_id = step_id
-                        runnable._status = 'running'
-                        dag.save(env.config['output_dag'])
-                        runnable._from_nested = True
-                        runnable._child_socket = create_socket(env.zmq_context, zmq.PAIR, 'child socket for dummy')
-                        runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
-
-                        env.logger.debug(
-                            f'{i_am()} sends {section.step_name()} from step queue with args {args} and context {context}')
-
-                        manager.execute(runnable, config=env.config, args=self.args,
-                                        spec=('step', section, context, shared, args, config, verbosity))
+                    if manager.execute_queued_step():
                         continue
 
                     # find any step that can be executed and run it, and update the DAT
@@ -1400,10 +1414,6 @@ class Base_Executor:
         # the mansger will have all fake executors
         manager = ExecutionManager(env.config['max_procs'])
         #
-        # steps sent and queued from the nested workflow
-        # they will be executed in random but at a higher priority than the steps
-        # on the master process.
-        self.step_queue = {}
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
