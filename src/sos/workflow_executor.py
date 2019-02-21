@@ -826,7 +826,7 @@ class Base_Executor:
                 if all(x.target_exists('target') for x in node._pending_targets):
                     # in a master node, this _socket points to the step
                     # in a nested node, this _socket points to the parent socket
-                    node._socket.send(b'target_resolved')
+                    node._socket.send_pyobj('target_resolved')
                     node._status = 'running'
         dag.update_step(runnable,
                         input_targets = env.sos_dict['__step_input__'],
@@ -1100,7 +1100,7 @@ class Base_Executor:
                                     runnable._socket = proc.socket
                                 else:
                                     # otherwise say the target cannot be resolved
-                                    proc.socket.send(b'')
+                                    proc.socket.send_pyobj('')
                                     proc.set_status('failed')
                             else:
                                 # if the missing target is from master, resolve from here
@@ -1111,7 +1111,7 @@ class Base_Executor:
                                     runnable._socket = proc.socket
                                 except Exception as e:
                                     env.logger.error(e)
-                                    proc.socket.send(b'')
+                                    proc.socket.send_pyobj('')
                                     proc.set_status('failed')
                         elif res[0] == 'dependent_target':
                             # The target might be dependent on other steps and we
@@ -1133,7 +1133,7 @@ class Base_Executor:
                                 else:
                                     # otherwise there is no target to verify
                                     # and we just continue
-                                    proc.socket.send(b'target_resolved')
+                                    proc.socket.send_pyobj('target_resolved')
                             else:
                                 # if the missing target is from master, resolve from here
                                 reply = self.handle_dependent_target(dag, sos_targets(res[1:]), runnable)
@@ -1142,7 +1142,7 @@ class Base_Executor:
                                     runnable._pending_targets = res[1:]
                                     runnable._socket = proc.socket
                                 else:
-                                    proc.socket.send(b'target_resolved')
+                                    proc.socket.send_pyobj('target_resolved')
                         elif res[0] == 'step':
                             # step sent from nested workflow
                             step_id = res[1]

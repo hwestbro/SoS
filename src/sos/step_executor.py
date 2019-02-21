@@ -1522,7 +1522,7 @@ class Step_Executor(Base_Step_Executor):
 
     def handle_unknown_target(self, e):
         self.socket.send_pyobj(['missing_target', e.target])
-        res = yield "self.socket.recv()"
+        res = yield "self.socket.recv_pyobj()"
         if not res:
             raise e
 
@@ -1539,8 +1539,8 @@ class Step_Executor(Base_Step_Executor):
             return
 
         self.socket.send_pyobj(['dependent_target'] + traced)
-        res = yield "self.socket.recv()"
-        if res != b'target_resolved':
+        res = yield "self.socket.recv_pyobj()"
+        if res != 'target_resolved':
             raise RuntimeError(f'Failed to veryify dependent target {traced}')
 
     def run(self):
