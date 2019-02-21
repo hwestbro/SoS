@@ -342,7 +342,13 @@ class Base_Step_Executor:
         assert isinstance(ifiles, sos_targets)
 
         if env.sos_dict.get('__dynamic_input__', False):
-            self.verify_dynamic_targets([x for x in ifiles if isinstance(x, file_target)])
+            runner = self.verify_dynamic_targets([x for x in ifiles if isinstance(x, file_target)])
+            try:
+                while True:
+                    yres = yield next(runner)
+                    runner.send(yres)
+            except StopIteration as e:
+                pass
 
         # input file is the filtered files
         env.sos_dict.set('step_input', ifiles)
@@ -354,6 +360,7 @@ class Base_Step_Executor:
         return ifiles.groups
 
     def verify_dynamic_targets(self, target):
+        yield None
         return True
 
     def process_depends_args(self, dfiles: sos_targets, **kwargs):
@@ -364,7 +371,13 @@ class Base_Step_Executor:
             raise ValueError(r"Depends needs to handle undetermined")
 
         if env.sos_dict.get('__dynamic_depends__', False):
-            self.verify_dynamic_targets([x for x in dfiles if isinstance(x, file_target)])
+            runner = self.verify_dynamic_targets([x for x in dfiles if isinstance(x, file_target)])
+            try:
+                while True:
+                    yres = yield next(runner)
+                    runner.send(yres)
+            except StopIteration as e:
+                pass
 
         env.sos_dict.set('_depends', dfiles)
         env.sos_dict.set('step_depends', dfiles)
@@ -646,6 +659,8 @@ class Base_Step_Executor:
         env.config['sockets']['result_push_socket'] = port
 
     def handle_unknown_target(self, e):
+        # wait for the clearnce of unknown target
+        yield None
         raise e
 
     def submit_substep(self, substep):
@@ -829,9 +844,21 @@ class Base_Step_Executor:
                                 )
                             dfiles = expand_depends_files(*args)
                             # dfiles can be Undetermined
-                            self.process_depends_args(dfiles, **kwargs)
+                            runner = self.process_depends_args(dfiles, **kwargs)
+                            try:
+                                while True:
+                                    yres = yield next(runner)
+                                    runner.send(yres)
+                            except StopIteration as e:
+                                pass
                         except (UnknownTarget, RemovedTarget) as e:
-                            self.handle_unknown_target(e)
+                            runner = self.handle_unknown_target(e)
+                            try:
+                                while True:
+                                    yres = yield next(runner)
+                                    runner.send(yres)
+                            except StopIteration as e:
+                                pass
                             continue
                         except UnavailableLock:
                             raise
@@ -865,13 +892,25 @@ class Base_Step_Executor:
                     # Files will be expanded differently with different running modes
                     input_files: sos_targets = expand_input_files(*args,
                         **{k:v for k, v in kwargs.items() if k not in SOS_INPUT_OPTIONS})
-                    self._substeps = self.process_input_args(
+                    runner = self.process_input_args(
                         input_files, **{k:v for k, v in kwargs.items() if k in SOS_INPUT_OPTIONS})
+                    try:
+                        while True:
+                            yres = yield next(runner)
+                            runner.send(yres)
+                    except StopIteration as e:
+                        self._substeps = e.value
                     #
                     if 'concurrent' in kwargs and kwargs['concurrent'] is False:
                         self.concurrent_substep = False
                 except (UnknownTarget, RemovedTarget) as e:
-                    self.handle_unknown_target(e)
+                    runner = self.handle_unknown_target(e)
+                    try:
+                        while True:
+                            yres = yield next(runner)
+                            runner.send(yres)
+                    except StopIteration as e:
+                        pass
                     continue
                 except UnavailableLock:
                     raise
@@ -1038,7 +1077,13 @@ class Base_Step_Executor:
                                     try:
                                         dfiles = expand_depends_files(*args)
                                         # dfiles can be Undetermined
-                                        self.process_depends_args(dfiles, **kwargs)
+                                        runner = self.process_depends_args(dfiles, **kwargs)
+                                        try:
+                                            while True:
+                                                yres = yield next(runner)
+                                                runner.send(yres)
+                                        except StopIteration as e:
+                                            pass
                                         self.depends_groups[idx] = env.sos_dict['_depends']
                                         self.log('_depends')
                                     except Exception as e:
@@ -1050,7 +1095,13 @@ class Base_Step_Executor:
                                 # everything is ok, break
                                 break
                             except (UnknownTarget, RemovedTarget) as e:
-                                self.handle_unknown_target(e)
+                                runner = self.handle_unknown_target(e)
+                                try:
+                                    while True:
+                                        yres = yield next(runner)
+                                        runner.send(yres)
+                                except StopIteration as e:
+                                    pass
                                 continue
                             except UnavailableLock:
                                 raise
@@ -1318,7 +1369,7 @@ class Base_Step_Executor:
                 wf_ids = sum([x['pending_workflows'] for x in self._subworkflow_results], [])
                 for _ in wf_ids:
                     # here we did not check if workflow ids match
-                    res = env.__socket__.recv_pyobj()
+                    res = yield "env.__socket__.recv_pyobj()"
                     if res is None:
                         sys.exit(0)
                     elif isinstance(res, Exception):
@@ -1471,7 +1522,7 @@ class Step_Executor(Base_Step_Executor):
 
     def handle_unknown_target(self, e):
         self.socket.send_pyobj(['missing_target', e.target])
-        res = self.socket.recv()
+        res = yield "self.socket.recv()"
         if not res:
             raise e
 
@@ -1488,7 +1539,7 @@ class Step_Executor(Base_Step_Executor):
             return
 
         self.socket.send_pyobj(['dependent_target'] + traced)
-        res = self.socket.recv()
+        res = yield "self.socket.recv()"
         if res != b'target_resolved':
             raise RuntimeError(f'Failed to veryify dependent target {traced}')
 
