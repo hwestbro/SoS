@@ -1275,6 +1275,7 @@ class Base_Step_Executor:
                             f'Unacceptable value for option active: {active}')
 
                 #
+                yield None
                 self.log('task')
                 try:
                     task_id, taskdef, task_vars = create_task(self.step.global_def, self.step.task,
@@ -1469,7 +1470,15 @@ class Step_Executor(Base_Step_Executor):
 
     def run(self):
         try:
-            res = Base_Step_Executor.run(self)
+            try:
+                runner = Base_Step_Executor.run(self)
+                while True:
+                    pending = next(runner)
+                    # process request
+                    yield pending
+            except StopIteration as e:
+                res = e.value
+
             if self.socket is not None:
                 env.logger.debug(
                     f'Step {self.step.step_name()} sends result {short_repr(res)}')

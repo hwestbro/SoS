@@ -101,7 +101,8 @@ class SoS_Worker(mp.Process):
                     f'Worker {self.name} receives request {short_repr(work)}')
                 if work[0] == 'step':
                     # this is a step ...
-                    self.run_step(*work[1:])
+                    for val in self.run_step(*work[1:]):
+                        pass
                 else:
                     self.run_workflow(*work[1:])
                 env.logger.debug(
@@ -183,7 +184,8 @@ class SoS_Worker(mp.Process):
 
         executor = Step_Executor(
             section, env.master_socket, mode=env.config['run_mode'])
-        executor.run()
+        for pending in executor.run():
+            yield pending
 
 
 class SoS_SubStep_Worker(mp.Process):
