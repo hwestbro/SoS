@@ -101,7 +101,13 @@ class SoS_Worker(mp.Process):
                     f'Worker {self.name} receives request {short_repr(work)}')
                 if work[0] == 'step':
                     # this is a step ...
-                    for val in self.run_step(*work[1:]):
+                    runner = self.run_step(*work[1:])
+                    try:
+                        while True:
+                            requested = next(runner)
+                            yres = env.master_socket.recv_pyobj()
+                            runner.send(yres)
+                    except StopIteration as e:
                         pass
                 else:
                     self.run_workflow(*work[1:])
@@ -184,8 +190,13 @@ class SoS_Worker(mp.Process):
 
         executor = Step_Executor(
             section, env.master_socket, mode=env.config['run_mode'])
-        for pending in executor.run():
-            yield pending
+
+        runner = executor.run()
+        try:
+            yres = yield next(runner)
+            runner.send(yres)
+        except StopIteration:
+            pass
 
 
 class SoS_SubStep_Worker(mp.Process):

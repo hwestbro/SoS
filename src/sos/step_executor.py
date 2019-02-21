@@ -517,9 +517,12 @@ class Base_Step_Executor:
 
     def wait_for_tasks(self, tasks, all_submitted):
         # this will be redefined in subclasses
+        yield None
         return {}
 
     def wait_for_results(self, all_submitted):
+        # this is a generator function because wait_for_tasks is a generator
+        # function and needs to yield to the caller
         if self.concurrent_substep:
             self.wait_for_substep()
 
@@ -532,7 +535,14 @@ class Base_Step_Executor:
             self.submit_tasks(tasks)
 
         # waiting for results of specified IDs
-        results = self.wait_for_tasks(self.task_manager._submitted_tasks, all_submitted)
+        try:
+            #1218
+            runner = self.wait_for_tasks(self.task_manager._submitted_tasks, all_submitted)
+            while True:
+                yres = yield next(runner)
+                runner.send(yres)
+        except StopIteration as e:
+            results = e.value
         #
         # report task
         # what we should do here is to get the alias of the Host
@@ -1275,7 +1285,6 @@ class Base_Step_Executor:
                             f'Unacceptable value for option active: {active}')
 
                 #
-                yield None
                 self.log('task')
                 try:
                     task_id, taskdef, task_vars = create_task(self.step.global_def, self.step.task,
@@ -1296,7 +1305,12 @@ class Base_Step_Executor:
                 # if not concurrent, we have to wait for the completion of the task
                 if 'concurrent' in env.sos_dict['_runtime'] and env.sos_dict['_runtime']['concurrent'] is False:
                     # in this case the steps must be executed not concurrently
-                    self.wait_for_results(all_submitted=False)
+                    runner = self.wait_for_results(all_submitted=False)
+                    try:
+                        yres = yield next(runner)
+                        runner.send(yres)
+                    except StopIteration:
+                        pass
                 #
                 # endfor loop for each input group
                 #
@@ -1313,7 +1327,13 @@ class Base_Step_Executor:
                 # otherwise there should be nothing interesting in subworkflow
                 # return value (shared is not handled)
 
-            self.wait_for_results(all_submitted=True)
+            runner = self.wait_for_results(all_submitted=True)
+            try:
+                yres = yield next(runner)
+                runner.send(yres)
+            except StopIteration:
+                pass
+
             for idx, res in enumerate(self.proc_results):
                 if 'sig_skipped' in res:
                     self.completed['__substep_skipped__'] += 1
@@ -1427,15 +1447,19 @@ class Step_Executor(Base_Step_Executor):
         self.socket.send_pyobj(['tasks', host] + tasks)
 
     def wait_for_tasks(self, tasks, all_submitted):
+        # wait for task is a generator function that yields the request
+        # to the runner
         if not tasks:
             return {}
         # when we wait, the "outsiders" also need to see the tags etc
         # of the tasks so we have to write to the database. #156
         send_message_to_controller(['commit_sig'])
+
         # wait till the executor responde
         results = {}
         while True:
-            res = self.socket.recv_pyobj()
+            # yield an indicator of what is requested, for debugging purpose
+            res = yield "self.socket.recv_pyobj()"
             if res is None:
                 sys.exit(0)
             results.update(res)
@@ -1471,11 +1495,11 @@ class Step_Executor(Base_Step_Executor):
     def run(self):
         try:
             try:
+                # 1218
                 runner = Base_Step_Executor.run(self)
                 while True:
-                    pending = next(runner)
-                    # process request
-                    yield pending
+                    yres = yield next(runner)
+                    runner.send(yres)
             except StopIteration as e:
                 res = e.value
 
