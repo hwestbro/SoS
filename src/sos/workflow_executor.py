@@ -108,7 +108,7 @@ class ProcInfo(object):
 
 class ExecutionManager(object):
     # this class managers workers and their status ...
-    def __init__(self, max_workers: int, args=None) -> None:
+    def __init__(self, max_workers: int, config: dict={}, args=None) -> None:
                 #
         # running processes. It consisists of
         #
@@ -131,16 +131,17 @@ class ExecutionManager(object):
         # on the master process.
         self.step_queue = {}
 
+        self.config = config
         self.args = args
 
-    def execute(self, runnable: Union[SoS_Node, dummy_node], config: Dict[str, Any], args: Any, spec: Any) -> None:
+    def execute(self, runnable: Union[SoS_Node, dummy_node], spec: Any) -> None:
         if not self.pool:
             ctrl_socket = create_socket(env.zmq_context, zmq.PAIR, 'ctrl socket for step worker')
             ctrl_port = ctrl_socket.bind_to_random_port('tcp://127.0.0.1')
 
             socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
             port = socket.bind_to_random_port('tcp://127.0.0.1')
-            worker = SoS_Worker(ctrl_port=ctrl_port, port=port, config=config, args=args)
+            worker = SoS_Worker(ctrl_port=ctrl_port, port=port, config=self.config, args=self.args)
             worker.start()
         else:
             pi = self.pool.pop(0)
@@ -178,8 +179,7 @@ class ExecutionManager(object):
         env.logger.debug(
             f'Master sends {section.step_name()} from step queue with args {args} and context {context}')
 
-        self.execute(runnable, config=env.config, args=self.args,
-                        spec=('step', section, context, shared, args, config, verbosity))
+        self.execute(runnable, spec=('step', section, context, shared, args, config, verbosity))
         return True
 
     def num_active(self) -> int:
@@ -1055,7 +1055,7 @@ class Base_Executor:
                 raise RuntimeError(f'No step to generate target {targets}')
 
         # manager of processes
-        manager = ExecutionManager(env.config['max_procs'], args=self.args)
+        manager = ExecutionManager(env.config['max_procs'], config=env.config, args=self.args)
         #
         try:
             exec_error = ExecuteError(self.workflow.name)
@@ -1190,8 +1190,7 @@ class Base_Executor:
                                 dag.save(env.config['output_dag'])
                                 wfrunnable._pending_workflows = [wid]
                                 #
-                                manager.execute(wfrunnable, config=config, args=args,
-                                                spec=('workflow', wid, wf, targets, args, shared, config))
+                                manager.execute(wfrunnable, spec=('workflow', wid, wf, targets, args, shared, config))
                         else:
                             raise RuntimeError(
                                 f'Unexpected value from step {short_repr(res)}')
@@ -1335,8 +1334,7 @@ class Base_Executor:
 
                     env.logger.debug(
                         f'{i_am()} execute {section.md5} from DAG')
-                    manager.execute(runnable, config=env.config, args=self.args,
-                                    spec=('step', section, runnable._context, shared, self.args,
+                    manager.execute(runnable, spec=('step', section, runnable._context, shared, self.args,
                                           env.config, env.verbosity))
 
                 if manager.all_done():
