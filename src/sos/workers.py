@@ -89,7 +89,6 @@ class SoS_Worker(mp.Process):
         # wait to handle jobs
         while True:
             try:
-                env.master_socket.send_pyobj('READY')
                 work = env.master_socket.recv_pyobj()
                 if work is None:
                     # it can take a while for the worker to shutdown but
