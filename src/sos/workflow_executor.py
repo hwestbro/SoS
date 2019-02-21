@@ -1280,8 +1280,8 @@ class Base_Executor:
                                 f'Task {" ".join(proc.step._pending_tasks)} returned with status {" ".join(res)}')
                     elif proc.in_status('target_pending') and hasattr(proc.step, '_from_nested') and proc.step._child_socket.poll(0):
                         # see if the child node has sent something
-                        res = proc.step._child_socket.recv()
-                        if res == b'target_resolved':
+                        res = proc.step._child_socket.recv_pyobj()
+                        if res == 'target_resolved':
                             # this _socket is the socket to the step
                             proc.step._socket.send_pyobj(res)
                             proc.step._status = 'running'

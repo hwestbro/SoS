@@ -103,10 +103,14 @@ class SoS_Worker(mp.Process):
                     # this is a step ...
                     runner = self.run_step(*work[1:])
                     try:
-                        while True:
-                            requested = next(runner)
-                            yres = env.master_socket.recv_pyobj()
-                            runner.send(yres)
+                        requested = next(runner)
+                        while True:                            
+                            # env.logger.error(f'worker received request {requested}')
+                            if requested is not None:
+                                yres = env.master_socket.recv_pyobj()
+                            else:
+                                yres = None
+                            requested = runner.send(yres)
                     except StopIteration as e:
                         pass
                 else:
@@ -193,8 +197,10 @@ class SoS_Worker(mp.Process):
 
         runner = executor.run()
         try:
-            yres = yield next(runner)
-            runner.send(yres)
+            yreq = next(runner)
+            while True:
+                yres = yield yreq
+                yreq = runner.send(yres)
         except StopIteration:
             pass
 

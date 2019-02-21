@@ -344,9 +344,10 @@ class Base_Step_Executor:
         if env.sos_dict.get('__dynamic_input__', False):
             runner = self.verify_dynamic_targets([x for x in ifiles if isinstance(x, file_target)])
             try:
+                yreq = next(runner)
                 while True:
-                    yres = yield next(runner)
-                    runner.send(yres)
+                    yres = yield yreq
+                    yreq = runner.send(yres)
             except StopIteration as e:
                 pass
 
@@ -373,9 +374,10 @@ class Base_Step_Executor:
         if env.sos_dict.get('__dynamic_depends__', False):
             runner = self.verify_dynamic_targets([x for x in dfiles if isinstance(x, file_target)])
             try:
+                yreq = next(runner)
                 while True:
-                    yres = yield next(runner)
-                    runner.send(yres)
+                    yres = yield yreq
+                    yreq = runner.send(yres)
             except StopIteration as e:
                 pass
 
@@ -551,9 +553,10 @@ class Base_Step_Executor:
         try:
             #1218
             runner = self.wait_for_tasks(self.task_manager._submitted_tasks, all_submitted)
+            yreq = next(runner)
             while True:
-                yres = yield next(runner)
-                runner.send(yres)
+                yres = yield yreq
+                yreq = runner.send(yres)
         except StopIteration as e:
             results = e.value
         #
@@ -846,17 +849,19 @@ class Base_Step_Executor:
                             # dfiles can be Undetermined
                             runner = self.process_depends_args(dfiles, **kwargs)
                             try:
+                                yreq = next(runner)
                                 while True:
-                                    yres = yield next(runner)
-                                    runner.send(yres)
+                                    yres = yield yreq
+                                    yreq = runner.send(yres)
                             except StopIteration as e:
                                 pass
                         except (UnknownTarget, RemovedTarget) as e:
                             runner = self.handle_unknown_target(e)
                             try:
+                                yreq = next(runner)
                                 while True:
-                                    yres = yield next(runner)
-                                    runner.send(yres)
+                                    yres = yield yreq
+                                    yreq = runner.send(yres)
                             except StopIteration as e:
                                 pass
                             continue
@@ -895,9 +900,10 @@ class Base_Step_Executor:
                     runner = self.process_input_args(
                         input_files, **{k:v for k, v in kwargs.items() if k in SOS_INPUT_OPTIONS})
                     try:
+                        yreq = next(runner)
                         while True:
-                            yres = yield next(runner)
-                            runner.send(yres)
+                            yres = yield yreq
+                            yreq = runner.send(yres)
                     except StopIteration as e:
                         self._substeps = e.value
                     #
@@ -906,9 +912,10 @@ class Base_Step_Executor:
                 except (UnknownTarget, RemovedTarget) as e:
                     runner = self.handle_unknown_target(e)
                     try:
+                        yreq = next(runner)
                         while True:
-                            yres = yield next(runner)
-                            runner.send(yres)
+                            yres = yield yreq
+                            yreq = runner.send(yres)
                     except StopIteration as e:
                         pass
                     continue
@@ -1079,9 +1086,10 @@ class Base_Step_Executor:
                                         # dfiles can be Undetermined
                                         runner = self.process_depends_args(dfiles, **kwargs)
                                         try:
+                                            yreq = next(runner)
                                             while True:
-                                                yres = yield next(runner)
-                                                runner.send(yres)
+                                                yres = yield yreq
+                                                yreq = runner.send(yres)
                                         except StopIteration as e:
                                             pass
                                         self.depends_groups[idx] = env.sos_dict['_depends']
@@ -1097,9 +1105,10 @@ class Base_Step_Executor:
                             except (UnknownTarget, RemovedTarget) as e:
                                 runner = self.handle_unknown_target(e)
                                 try:
+                                    yreq = next(runner)
                                     while True:
-                                        yres = yield next(runner)
-                                        runner.send(yres)
+                                        yres = yield yreq
+                                        yreq = runner.send(yres)
                                 except StopIteration as e:
                                     pass
                                 continue
@@ -1358,8 +1367,10 @@ class Base_Step_Executor:
                     # in this case the steps must be executed not concurrently
                     runner = self.wait_for_results(all_submitted=False)
                     try:
-                        yres = yield next(runner)
-                        runner.send(yres)
+                        yreq = next(runner)
+                        while True:
+                            yres = yield yreq
+                            yreq = runner.send(yres)
                     except StopIteration:
                         pass
                 #
@@ -1380,8 +1391,10 @@ class Base_Step_Executor:
 
             runner = self.wait_for_results(all_submitted=True)
             try:
-                yres = yield next(runner)
-                runner.send(yres)
+                yreq = next(runner)
+                while True:
+                    yres = yield yreq
+                    yreq = runner.send(yres)
             except StopIteration:
                 pass
 
@@ -1548,9 +1561,10 @@ class Step_Executor(Base_Step_Executor):
             try:
                 # 1218
                 runner = Base_Step_Executor.run(self)
+                yreq = next(runner)
                 while True:
-                    yres = yield next(runner)
-                    runner.send(yres)
+                    yres = yield yreq
+                    yreq = runner.send(yres)
             except StopIteration as e:
                 res = e.value
 
