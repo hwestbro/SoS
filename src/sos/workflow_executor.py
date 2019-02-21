@@ -131,11 +131,25 @@ class ExecutionManager(object):
             port = socket.bind_to_random_port('tcp://127.0.0.1')
             worker = SoS_Worker(port=port, config=config, args=args)
             worker.start()
+            #
+            if socket.poll(5000):
+                # wait for 5 seconds
+                msg = socket.recv_pyobj()
+                if msg != 'READY':
+                    raise RuntimeError(f'Worker sent unknown message {msg}')
+            else:
+                raise RuntimeError('Failed to start a worker in 5 seconds')
         else:
+            # a worker might be put in the pool before it receives the next
+            # READY message so we should clear it
             # get worker, q and runnable is not needed any more
             pi = self.pool.pop(0)
             worker = pi.worker
             socket = pi.socket
+            while socket.poll(0):
+                msg = socket.recv_pyobj()
+                if msg != 'READY':
+                    raise RuntimeError('A pooled worker should only receive READY before it is used.')
 
         # we need to report number of active works, plus master process itself
         send_message_to_controller(['nprocs', self.num_active() + 1])
@@ -1166,12 +1180,20 @@ class Base_Executor:
                             raise RuntimeError(
                                 f'Unexpected value from step {short_repr(res)}')
                         continue
+                    elif res == 'READY':
+                        env.logger.warning('RECEIVE READY')
+                        # in this case the worker has done its job and we put it to hibernation
+                        manager.mark_idle(idx)
+                        continue
                     elif isinstance(res, str):
                         raise RuntimeError(
                             f'Unexpected value from step {short_repr(res)}')
 
-                    # if we does get the result, we send the process to pool
-
+                    # when a worker receives a result, it should be ready, namely a READY message is on
+                    # the way, but a fair share policy means that it will be processed next time. However,
+                    # when the next step is being processed, this will prevent it from using this worker.
+                    # using mark_idle here will fix this, but the pool socket will have to be cleared
+                    # before use.
                     manager.mark_idle(idx)
 
                     env.logger.debug(
