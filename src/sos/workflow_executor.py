@@ -108,7 +108,7 @@ class ProcInfo(object):
 
 class ExecutionManager(object):
     # this class managers workers and their status ...
-    def __init__(self, max_workers: int) -> None:
+    def __init__(self, max_workers: int, args=None) -> None:
                 #
         # running processes. It consisists of
         #
@@ -130,6 +130,8 @@ class ExecutionManager(object):
         # they will be executed in random but at a higher priority than the steps
         # on the master process.
         self.step_queue = {}
+
+        self.args = args
 
     def execute(self, runnable: Union[SoS_Node, dummy_node], config: Dict[str, Any], args: Any, spec: Any) -> None:
         if not self.pool:
@@ -157,7 +159,7 @@ class ExecutionManager(object):
         runnable._status = 'step_pending'
         self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, step=runnable))
 
-    def push_to_step_queue(self, step_id, params):
+    def push_to_step_queue(self, step_id, step_params):
         self.step_queue[step_id] = step_params
 
     def execute_queued_step(self):
@@ -169,13 +171,12 @@ class ExecutionManager(object):
         runnable = dummy_node()
         runnable._node_id = step_id
         runnable._status = 'running'
-        dag.save(env.config['output_dag'])
         runnable._from_nested = True
         runnable._child_socket = create_socket(env.zmq_context, zmq.PAIR, 'child socket for dummy')
         runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
 
         env.logger.debug(
-            f'{i_am()} sends {section.step_name()} from step queue with args {args} and context {context}')
+            f'Master sends {section.step_name()} from step queue with args {args} and context {context}')
 
         self.execute(runnable, config=env.config, args=self.args,
                         spec=('step', section, context, shared, args, config, verbosity))
@@ -1054,7 +1055,7 @@ class Base_Executor:
                 raise RuntimeError(f'No step to generate target {targets}')
 
         # manager of processes
-        manager = ExecutionManager(env.config['max_procs'])
+        manager = ExecutionManager(env.config['max_procs'], args=self.args)
         #
         try:
             exec_error = ExecuteError(self.workflow.name)
@@ -1305,6 +1306,7 @@ class Base_Executor:
                     #
                     # if steps from child nested workflow?
                     if manager.execute_queued_step():
+                        dag.save(env.config['output_dag'])
                         continue
 
                     # find any step that can be executed and run it, and update the DAT
