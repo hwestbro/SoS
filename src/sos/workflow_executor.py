@@ -843,6 +843,7 @@ class Base_Executor:
                         output_targets = env.sos_dict['__step_output__'],
                         depends_targets = env.sos_dict['__step_depends__'])
         runnable._status = 'completed'
+        dag.mark_dirty()
         dag.save(env.config['output_dag'])
 
     def handle_dependent_target(self, dag, targets, runnable) -> int:
@@ -1156,7 +1157,7 @@ class Base_Executor:
                             env.logger.debug(
                                 f'{i_am()} receives step request {step_id} with args {step_params[3]}')
 
-                            section, context, shared, args, config, verbosity, port = step_param
+                            section, context, shared, args, config, verbosity, port = step_params
                             # run it!
                             runnable = dummy_node()
                             runnable._node_id = step_id
@@ -1303,12 +1304,14 @@ class Base_Executor:
 
                 # step 3: check if there is room and need for another job
                 while True:
+                    if not dag.dirty():
+                        break
                     # find any step that can be executed and run it, and update the DAT
                     # with status.
                     runnable = dag.find_executable()
                     if runnable is None:
-                        # no runnable
-                        # dag.show_nodes()
+                        # do not try to find executable until the dag becomes dirty again
+                        dag.mark_dirty(False)
                         break
 
                     # find the section from runnable
