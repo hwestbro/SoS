@@ -1346,11 +1346,6 @@ class Base_Executor:
 
                 if manager.all_done():
                     break
-                # if manager.all_failed():
-                #     steps = list(dict.fromkeys(
-                #         [str(x.step) for x in manager.procs]))
-                #     raise RuntimeError(
-                #         f'Workflow exited due to failed step{"s" if len(steps) > 1 else ""} {", ".join(steps)}.')
                 else:
                     time.sleep(0.1)
         except KeyboardInterrupt:

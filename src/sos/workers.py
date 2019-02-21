@@ -54,9 +54,6 @@ class SoS_Worker(mp.Process):
 
     def reset_dict(self):
         env.sos_dict = WorkflowDict()
-        self.init_dict()
-
-    def init_dict(self):
         env.parameter_vars.clear()
 
         env.sos_dict.set('__args__', self.args)
