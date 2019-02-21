@@ -2262,6 +2262,7 @@ time.sleep(2)
 
     def testKillTask(self):
         '''Test if the workflow can error out after a worker is killed'''
+        subprocess.call(['sos', 'purge', '--all'])
         import psutil
         import time
         with open('testKillTask.sos', 'w') as tk:
