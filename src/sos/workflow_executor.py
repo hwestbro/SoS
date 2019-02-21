@@ -10,6 +10,7 @@ import sys
 import time
 import uuid
 import zmq
+import pickle
 
 from collections import defaultdict, Sequence
 from io import StringIO
@@ -152,7 +153,8 @@ class ExecutionManager(object):
         # we need to report number of active works, plus master process itself
         send_message_to_controller(['nprocs', self.num_active() + 1])
 
-        socket.send_pyobj(spec)
+        # spec is already pickled to "freeze" them
+        socket.send(spec)
         self.procs.append(
             ProcInfo(worker=worker, ctrl_socket=socket, socket=socket, step=runnable))
 
@@ -160,26 +162,14 @@ class ExecutionManager(object):
         runnable._status = 'step_pending'
         self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, step=runnable))
 
-    def push_to_step_queue(self, step_id, step_params):
-        self.step_queue[step_id] = step_params
+    def push_to_queue(self, runnable, spec):
+        self.step_queue[runnable] = spec
 
-    def execute_queued_step(self):
+    def send_new(self):
         if not self.step_queue:
             return False
-        step_id, step_param = self.step_queue.popitem()
-        section, context, shared, args, config, verbosity, port = step_param
-        # run it!
-        runnable = dummy_node()
-        runnable._node_id = step_id
-        runnable._status = 'running'
-        runnable._from_nested = True
-        runnable._child_socket = create_socket(env.zmq_context, zmq.PAIR, 'child socket for dummy')
-        runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
-
-        env.logger.debug(
-            f'Master sends {section.step_name()} from step queue with args {args} and context {context}')
-
-        self.execute(runnable, spec=('step', section, context, shared, args, config, verbosity))
+        runnable, spec = self.step_queue.popitem()
+        self.execute(runnable, spec=spec)
         return True
 
     def num_active(self) -> int:
@@ -1165,7 +1155,19 @@ class Base_Executor:
                             step_params = res[2:]
                             env.logger.debug(
                                 f'{i_am()} receives step request {step_id} with args {step_params[3]}')
-                            manager.push_to_step_queue(step_id, step_params)
+
+                            section, context, shared, args, config, verbosity, port = step_param
+                            # run it!
+                            runnable = dummy_node()
+                            runnable._node_id = step_id
+                            runnable._status = 'running'
+                            runnable._from_nested = True
+                            runnable._child_socket = create_socket(env.zmq_context, zmq.PAIR, 'child socket for dummy')
+                            runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
+
+                            manager.push_to_queue(runnable,
+                                pickle.dumps(('step', section, context, shared, args, config, verbosity)))
+
                         elif res[0] == 'workflow':
                             workflow_ids, wfs, targets, args, shared, config = res[1:]
                             # receive the real definition
@@ -1190,7 +1192,8 @@ class Base_Executor:
                                 dag.save(env.config['output_dag'])
                                 wfrunnable._pending_workflows = [wid]
                                 #
-                                manager.execute(wfrunnable, spec=('workflow', wid, wf, targets, args, shared, config))
+                                manager.push_to_queue(wfrunnable,
+                                    spec=pickle.dumps(('workflow', wid, wf, targets, args, shared, config)))
                         else:
                             raise RuntimeError(
                                 f'Unexpected value from step {short_repr(res)}')
@@ -1300,14 +1303,6 @@ class Base_Executor:
 
                 # step 3: check if there is room and need for another job
                 while True:
-                    if manager.all_busy():
-                        break
-                    #
-                    # if steps from child nested workflow?
-                    if manager.execute_queued_step():
-                        dag.save(env.config['output_dag'])
-                        continue
-
                     # find any step that can be executed and run it, and update the DAT
                     # with status.
                     runnable = dag.find_executable()
@@ -1334,8 +1329,17 @@ class Base_Executor:
 
                     env.logger.debug(
                         f'{i_am()} execute {section.md5} from DAG')
-                    manager.execute(runnable, spec=('step', section, runnable._context, shared, self.args,
-                                          env.config, env.verbosity))
+                    manager.push_to_queue(runnable,
+                        spec=pickle.dumps(('step', section, runnable._context, shared, self.args,
+                                          env.config, env.verbosity)))
+
+                while True:
+                    if manager.all_busy():
+                        break
+
+                    # if steps from child nested workflow?
+                    if not manager.send_new():
+                        break
 
                 if manager.all_done():
                     break
