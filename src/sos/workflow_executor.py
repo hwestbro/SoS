@@ -1058,9 +1058,6 @@ class Base_Executor:
 
         self.write_workflow_info()
 
-        def i_am():
-            return 'Master'
-
         self.reset_dict()
 
         env.config['run_mode'] = env.config.get(
@@ -1121,7 +1118,7 @@ class Base_Executor:
                     if isinstance(res, list):
                         if res[0] == 'tasks':
                             env.logger.debug(
-                                f'{i_am()} receives task request {res}')
+                                f'Master receives task request {res}')
                             host = res[1]
                             if host == '__default__':
                                 if 'default_queue' in env.config:
@@ -1208,7 +1205,7 @@ class Base_Executor:
                             step_id = res[1]
                             step_params = res[2:]
                             env.logger.debug(
-                                f'{i_am()} receives step request {step_id} with args {step_params[3]}')
+                                f'Master receives step request {step_id} with args {step_params[3]}')
 
                             section, context, shared, args, config, verbosity, port = step_params
                             # run it!
@@ -1226,7 +1223,7 @@ class Base_Executor:
                             workflow_ids, wfs, targets, args, shared, config = res[1:]
                             # receive the real definition
                             env.logger.debug(
-                                f'{i_am()} receives workflow request {workflow_ids}')
+                                f'Master receives workflow request {workflow_ids}')
 
                             # now we would like to find a worker and
                             if hasattr(runnable, '_pending_workflows'):
@@ -1264,11 +1261,11 @@ class Base_Executor:
                     manager.mark_idle(idx)
 
                     env.logger.debug(
-                        f'{i_am()} receive a result {short_repr(res)}')
+                        f'Master receive a result {short_repr(res)}')
                     if hasattr(runnable, '_from_nested'):
                         # if the runnable is from nested, we will need to send the result back
                         # to the nested workflow
-                        env.logger.debug(f'{i_am()} send res to nested')
+                        env.logger.debug(f'Master send res to nested')
                         runnable._status = 'completed'
                         dag.save(env.config['output_dag'])
                         runnable._child_socket.send_pyobj(res)
@@ -1282,20 +1279,20 @@ class Base_Executor:
                         self.handle_unknown_target(res.target, dag, runnable)
                     # if the job is failed
                     elif isinstance(res, Exception):
-                        env.logger.debug(f'{i_am()} received an exception')
+                        env.logger.debug(f'Master received an exception')
                         # env.logger.error(res)
                         runnable._status = 'failed'
                         dag.save(env.config['output_dag'])
                         exec_error.append(runnable._node_id, res)
                         raise exec_error
                     elif '__step_name__' in res:
-                        env.logger.debug(f'{i_am()} receive step result ')
+                        env.logger.debug(f'Master receive step result ')
                         self.step_completed(res, dag, runnable)
                     elif '__workflow_id__' in res:
                         # result from a workflow
                         # the worker process has been returned to the pool, now we need to
                         # notify the step that is waiting for the result
-                        env.logger.debug(f'{i_am()} receive workflow result')
+                        env.logger.debug(f'Master receive workflow result')
                         # aggregate steps etc with subworkflows
                         for k, v in res['__completed__'].items():
                             self.completed[k] += v
@@ -1384,7 +1381,7 @@ class Base_Executor:
                         runnable._context['workflow_id'] = env.sos_dict['workflow_id']
 
                     env.logger.debug(
-                        f'{i_am()} execute {section.md5} from DAG')
+                        f'Master execute {section.md5} from DAG')
                     manager.push_to_queue(runnable,
                         spec=pickle.dumps(('step', section, runnable._context, shared, self.args,
                                           env.config, env.verbosity)))
@@ -1451,9 +1448,6 @@ class Base_Executor:
         # this function still uses a manager, but never calls manager.execute()
         #
         self.completed = defaultdict(int)
-
-        def i_am():
-            return 'Nested'
 
         self.reset_dict()
         env.config['run_mode'] = env.config.get(
@@ -1524,7 +1518,7 @@ class Base_Executor:
                     # closed.
                     manager.dispose(idx)
                     env.logger.debug(
-                        f'{i_am()} receive a result {short_repr(res)}')
+                        f'Nested receive a result {short_repr(res)}')
                     if isinstance(res, UnavailableLock):
                         self.handle_unavailable_lock(res, dag, runnable)
                     elif isinstance(res, RemovedTarget):
@@ -1536,13 +1530,13 @@ class Base_Executor:
                         self.handle_unknown_target(res.target, dag, runnable)
                     # if the job is failed
                     elif isinstance(res, Exception):
-                        env.logger.debug(f'{i_am()} received an exception')
+                        env.logger.debug(f'Nested received an exception')
                         runnable._status = 'failed'
                         dag.save(env.config['output_dag'])
                         exec_error.append(runnable._node_id, res)
                         raise exec_error
                     elif '__step_name__' in res:
-                        env.logger.debug(f'{i_am()} receive step result ')
+                        env.logger.debug(f'Nested receive step result ')
                         self.step_completed(res, dag, runnable)
                     else:
                         raise RuntimeError(
@@ -1575,7 +1569,7 @@ class Base_Executor:
                     # send the step to the parent
                     step_id = uuid.uuid4()
                     env.logger.debug(
-                        f'{i_am()} send step {section.step_name()} to master with args {self.args} and context {runnable._context}')
+                        f'Nested send step {section.step_name()} to master with args {self.args} and context {runnable._context}')
 
                     socket = create_socket(env.zmq_context, zmq.PAIR, 'worker pair socket')
                     port = socket.bind_to_random_port('tcp://127.0.0.1')
