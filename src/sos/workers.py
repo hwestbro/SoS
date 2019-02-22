@@ -135,6 +135,8 @@ class SoS_Worker(mp.Process):
 
         if work is None:
             return False
+        elif not work: # an empty task {}
+            return True
 
         if work[0] == 'step':
             # this is a step ...
