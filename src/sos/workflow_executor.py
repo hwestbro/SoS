@@ -192,7 +192,7 @@ class ExecutionManager(object):
     def send_to_proc(self, proc):
         master_port = proc.ctrl_socket.recv_pyobj()
         if not self.step_queue:
-            proc.ctrl_socket.send(None)
+            proc.ctrl_socket.send_pyobj(None)
             return
         runnable, spec = self.step_queue.popitem()
         # spec is already pickled to "freeze" them
