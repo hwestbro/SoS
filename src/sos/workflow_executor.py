@@ -77,10 +77,11 @@ class dummy_node:
 
 
 class ProcInfo(object):
-    def __init__(self, worker: SoS_Worker, ctrl_socket, socket, step: Union[SoS_Node, dummy_node]) -> None:
+    def __init__(self, worker: SoS_Worker, ctrl_socket, socket, port, step: Union[SoS_Node, dummy_node]) -> None:
         self.worker = worker
         self.ctrl_socket = ctrl_socket
         self.socket = socket
+        self.port = port
         self.step = step
         self._last_alive = time.time()
 
@@ -136,31 +137,54 @@ class ExecutionManager(object):
         self.args = args
 
     def execute(self, runnable: Union[SoS_Node, dummy_node], spec: Any) -> None:
+        # wait for a port number from the worker master socket
         if not self.pool:
+            # create a new worker and new socket etc
+
             ctrl_socket = create_socket(env.zmq_context, zmq.PAIR, 'ctrl socket for step worker')
             ctrl_port = ctrl_socket.bind_to_random_port('tcp://127.0.0.1')
 
-            socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
-            port = socket.bind_to_random_port('tcp://127.0.0.1')
-            worker = SoS_Worker(ctrl_port=ctrl_port, port=port, config=self.config, args=self.args)
+            worker = SoS_Worker(port=ctrl_port, config=self.config, args=self.args)
             worker.start()
+
+            master_port = ctrl_socket.recv_pyobj()
+            if not isinstance(master_port, int):
+                raise RuntimeError('Expecting a port number from worker, {master_port} received.')
+
+            master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
+            master_socket.connect(f'tcp://127.0.0.1:{master_port}')
         else:
+            # use an existing pooled worker
             pi = self.pool.pop(0)
             worker = pi.worker
+
+            # the same control socket
             ctrl_socket = pi.ctrl_socket
-            socket = pi.socket
+
+            # but the master socket might have to be replaced
+            master_port = ctrl_socket.recv_pyobj()
+            if not isinstance(master_port, int):
+                raise RuntimeError('Expecting a port number from worker, {master_port} received.')
+
+            if master_port == pi.port:
+                master_socket = pi.socket
+            else:
+                close_socket(pi.socket, 'executor master socket', now=True)
+                master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
+                master_socket.connect(f'tcp://127.0.0.1:{master_port}')                
 
         # we need to report number of active works, plus master process itself
         send_message_to_controller(['nprocs', self.num_active() + 1])
 
         # spec is already pickled to "freeze" them
-        socket.send(spec)
+        ctrl_socket.send(spec)
+
         self.procs.append(
-            ProcInfo(worker=worker, ctrl_socket=socket, socket=socket, step=runnable))
+            ProcInfo(worker=worker, ctrl_socket=ctrl_socket, socket=master_socket, port=master_port, step=runnable))
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
-        self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, step=runnable))
+        self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, port=None, step=runnable))
 
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
@@ -202,8 +226,10 @@ class ExecutionManager(object):
             # the process might have been killed #1212
             # in which case we should not send anything
             if proc.worker.is_alive():
-                proc.socket.send_pyobj(None)
-            close_socket(proc.socket, now=True)
+                if not proc.ctrl_socket.closed:
+                    proc.ctrl_socket.send_pyobj(None)
+                    close_socket(proc.ctrl_socket, 'worker control socket', now=True)
+                close_socket(proc.socket, now=True)        
         cnt = 0
         while cnt < 500:
             # wait at most 5 second for all processes to be

@@ -29,7 +29,7 @@ class SoS_Worker(mp.Process):
     Worker process to process SoS step or workflow in separate process.
     '''
 
-    def __init__(self, ctrl_port: int, port: int, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
+    def __init__(self, port: int, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
         '''
 
         config:
@@ -46,11 +46,16 @@ class SoS_Worker(mp.Process):
         # the worker process knows configuration file, command line argument etc
         super(SoS_Worker, self).__init__(**kwargs)
         #
-        self.ctrl_port = ctrl_port
         self.port = port
         self.config = config
 
         self.args = [] if args is None else args
+
+        # there can be multiple jobs for this worker, each using their own port and socket
+        self._envs = []
+        self._master_sockets = []
+        self._master_ports = []
+        self._stack_idx = 0
 
     def reset_dict(self):
         env.sos_dict = WorkflowDict()
@@ -73,48 +78,27 @@ class SoS_Worker(mp.Process):
                     env.sos_dict.set(key, value)
 
     def run(self):
-        env.ctrl_socket = create_socket(env.zmq_context, zmq.PAIR)
-        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.ctrl_port}')
-        self._run()
-
-    def _run(self):
         # env.logger.warning(f'Worker created {os.getpid()}')
         env.config.update(self.config)
         env.zmq_context = connect_controllers()
+
+        # create controller socket
+        env.ctrl_socket = create_socket(env.zmq_context, zmq.PAIR)
+        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.port}')
+
         signal.signal(signal.SIGTERM, signal_handler)
+
+        # create at last one master socket
         env.master_socket = create_socket(env.zmq_context, zmq.PAIR)
-        env.master_socket.connect(f'tcp://127.0.0.1:{self.port}')
+        port = env.master_socket.bind_to_random_port('tcp://127.0.0.1')
+        self._master_sockets.append(env.master_socket)
+        self._master_ports.append(port)
 
         # wait to handle jobs
         while True:
             try:
-                work = env.master_socket.recv_pyobj()
-                if work is None:
-                    # it can take a while for the worker to shutdown but
-                    # we no longer needs this signal handler if the worker
-                    # has started quiting
-                    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+                if not self._process_job():
                     break
-                env.logger.debug(
-                    f'Worker {self.name} receives request {short_repr(work)}')
-                if work[0] == 'step':
-                    # this is a step ...
-                    runner = self.run_step(*work[1:])
-                    try:
-                        requested = next(runner)
-                        while True:                            
-                            # env.logger.error(f'worker received request {requested}')
-                            if requested is not None:
-                                yres = env.master_socket.recv_pyobj()
-                            else:
-                                yres = None
-                            requested = runner.send(yres)
-                    except StopIteration as e:
-                        pass
-                else:
-                    self.run_workflow(*work[1:])
-                env.logger.debug(
-                    f'Worker {self.name} completes request {short_repr(work)}')
             except ProcessKilled:
                 # in theory, this will not be executed because the exception
                 # will be caught by the step executor, and then sent to the master
@@ -123,12 +107,71 @@ class SoS_Worker(mp.Process):
             except KeyboardInterrupt:
                 break
         # Finished
-        kill_all_subprocesses(os.getpid())
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        close_socket(env.master_socket, now=True)
+        kill_all_subprocesses(os.getpid())
+        for socket in self._master_sockets:
+            close_socket(socket, 'worker master', now=True)
+        close_socket(env.ctrl_socket, now=True)
         disconnect_controllers(env.zmq_context)
 
-        # env.logger.warning(f'Worker terminated {os.getpid()}')
+
+    def _process_job(self):
+
+        if len(self._master_sockets) > self._stack_idx:
+            # if current stack is ok
+            env.master_socket = self._master_sockets[self._stack_idx]
+        else:
+            # a new socket is needed
+            env.master_socket = create_socket(env.zmq_context, zmq.PAIR)
+            port = socket.bind_to_random_port('tcp://127.0.0.1')
+            self.master_sockets.append(env.master_socket)
+            self.master_ports.append(port)
+
+        # send the current socket number as a way to notify the availability of worker
+        env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
+        work = env.ctrl_socket.recv_pyobj()
+        env.logger.trace(
+            f'Worker {self.name} receives request {short_repr(work)}')
+
+        if work is None:
+            return False
+
+        if work[0] == 'step':
+            # this is a step ...
+            runner = self.run_step(*work[1:])
+            try:
+                requested = next(runner)
+                while True:
+                    # if request is None, it is a normal "break" and
+                    # we do not need to jump off
+                    if requested is None:
+                        requested = runner.send(None)
+                        continue
+                    # wait for a reply from the socket
+                    yres = env.master_socket.recv_pyobj()
+                    requested = runner.send(yres)
+                    #
+                    # while True:
+                    #     # wait 0.1s
+                    #     if env.master_socket.poll(100):
+                    #         # we get a response very quickly, so we continue
+                    #         yres = env.master_socket.recv_pyobj()
+                    #         requested = runner.send(None)
+                    #         break
+                    #     # now let us ask if the master has something else for us
+                    #     env.ctrl_socket.send(b'YIELDED')
+                    #     res = env.ctrl_socket.recv_pyobj()
+                    #     if res is not None:
+                    #         # if there is some job to do
+                    #         self._run()
+
+            except StopIteration as e:
+                pass
+        else:
+            self.run_workflow(*work[1:])
+        env.logger.debug(
+            f'Worker {self.name} completes request {short_repr(work)}')
+        return True
 
 
     def run_workflow(self, workflow_id, wf, targets, args, shared, config):
