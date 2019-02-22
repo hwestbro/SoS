@@ -217,7 +217,7 @@ class ExecutionManager(object):
         return len([x for x in self.procs if x])
 
     def all_busy(self) -> bool:
-        return self.num_active() >= self.max_workers
+        return False #self.num_active() >= self.max_workers
 
     def all_done(self) -> bool:
         return not self.procs or all(x is None for x in self.procs)
