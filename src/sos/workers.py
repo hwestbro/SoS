@@ -29,7 +29,7 @@ class SoS_Worker(mp.Process):
     Worker process to process SoS step or workflow in separate process.
     '''
 
-    def __init__(self, port: int, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
+    def __init__(self, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
         '''
 
         config:
@@ -46,7 +46,6 @@ class SoS_Worker(mp.Process):
         # the worker process knows configuration file, command line argument etc
         super(SoS_Worker, self).__init__(**kwargs)
         #
-        self.port = port
         self.config = config
 
         self.args = [] if args is None else args
@@ -82,8 +81,8 @@ class SoS_Worker(mp.Process):
         env.zmq_context = connect_controllers()
 
         # create controller socket
-        env.ctrl_socket = create_socket(env.zmq_context, zmq.PAIR)
-        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.port}')
+        env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ)
+        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["worker_backend"]}')
 
         signal.signal(signal.SIGTERM, signal_handler)
 
@@ -134,6 +133,7 @@ class SoS_Worker(mp.Process):
     def _process_job(self):
         # send the current socket number as a way to notify the availability of worker
         env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
+        env.logger.trace(f'worker sent port')
         work = env.ctrl_socket.recv_pyobj()
         env.logger.trace(
             f'Worker {self.name} receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')

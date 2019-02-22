@@ -77,9 +77,7 @@ class dummy_node:
 
 
 class ProcInfo(object):
-    def __init__(self, worker: SoS_Worker, ctrl_socket, socket, port, step: Union[SoS_Node, dummy_node]) -> None:
-        self.worker = worker
-        self.ctrl_socket = ctrl_socket
+    def __init__(self,  socket, port, step: Union[SoS_Node, dummy_node]) -> None:
         self.socket = socket
         self.port = port
         self.step = step
@@ -91,9 +89,6 @@ class ProcInfo(object):
     def is_alive(self):
         # avoid calling is_alive too many times
         if time.time() - self._last_alive < 1:
-            return True
-        elif self.worker.is_alive():
-            self._last_alive = time.time()
             return True
         else:
             return False
@@ -134,20 +129,25 @@ class ExecutionManager(object):
         self.step_queue = {}
 
         self.config = config
+
         self.args = args
+
+        self.worker_backend_socket = create_socket(env.zmq_context, zmq.REP, 'ctrl socket for worker')
+        self.worker_backend_port = self.worker_backend_socket.bind_to_random_port('tcp://127.0.0.1')
+
+        if not 'sockets' in self.config:
+            self.config['sockets'] = {}
+        self.config['sockets']['worker_backend'] = self.worker_backend_port
 
     def execute(self, runnable: Union[SoS_Node, dummy_node], spec: Any) -> None:
         # wait for a port number from the worker master socket
         if not self.pool:
             # create a new worker and new socket etc
-
-            ctrl_socket = create_socket(env.zmq_context, zmq.PAIR, 'ctrl socket for step worker')
-            ctrl_port = ctrl_socket.bind_to_random_port('tcp://127.0.0.1')
-
-            worker = SoS_Worker(port=ctrl_port, config=self.config, args=self.args)
+            worker = SoS_Worker(config=self.config, args=self.args)
             worker.start()
 
-            master_port = ctrl_socket.recv_pyobj()
+            master_port = self.worker_backend_socket.recv_pyobj()
+
             if not isinstance(master_port, int):
                 raise RuntimeError('Expecting a port number from worker, {master_port} received.')
 
@@ -156,13 +156,9 @@ class ExecutionManager(object):
         else:
             # use an existing pooled worker
             pi = self.pool.pop(0)
-            worker = pi.worker
 
-            # the same control socket
-            ctrl_socket = pi.ctrl_socket
-
+            master_port = self.worker_backend_socket.recv_pyobj()
             # but the master socket might have to be replaced
-            master_port = ctrl_socket.recv_pyobj()
             if not isinstance(master_port, int):
                 raise RuntimeError('Expecting a port number from worker, {master_port} received.')
 
@@ -177,33 +173,33 @@ class ExecutionManager(object):
         send_message_to_controller(['nprocs', self.num_active() + 1])
 
         # spec is already pickled to "freeze" them
-        ctrl_socket.send(spec)
+        self.worker_backend_socket.send(spec)
 
         self.procs.append(
-            ProcInfo(worker=worker, ctrl_socket=ctrl_socket, socket=master_socket, port=master_port, step=runnable))
+            ProcInfo(socket=master_socket, port=master_port, step=runnable))
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
-        self.procs.append(ProcInfo(worker=None, ctrl_socket=None, socket=socket, port=None, step=runnable))
+        self.procs.append(ProcInfo(socket=socket, port=None, step=runnable))
 
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
 
-    def send_to_proc(self, proc):
-        master_port = proc.ctrl_socket.recv_pyobj()
+    def send_to_proc(self):
+        master_port = self.worker_backend_socket.recv_pyobj()
         if not self.step_queue:
             # nothing needs to be done now, but please do not shutdown the worker yet.
-            proc.ctrl_socket.send_pyobj({})
+            self.worker_backend_socket.send_pyobj({})
             return
         runnable, spec = self.step_queue.popitem()
         # spec is already pickled to "freeze" them
-        proc.ctrl_socket.send(spec)
+        self.worker_backend_socket.send(spec)
 
         master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
         master_socket.connect(f'tcp://127.0.0.1:{master_port}')
         # we need to create a separaate ProcInfo to keep track of the step
         self.procs.append(
-            ProcInfo(worker=proc.worker, ctrl_socket=proc.ctrl_socket,
+            ProcInfo(
                 socket=master_socket, port=master_port, step=runnable))
 
     def send_new(self):
@@ -241,29 +237,11 @@ class ExecutionManager(object):
         for proc in self.procs + self.pool:
             # the process might have been killed #1212
             # in which case we should not send anything
-            if proc.worker.is_alive():
-                if not proc.ctrl_socket.closed:
-                    # we send None to the worker but the worker might be busy
-                    # e.g. when the workflow is terminated by the failure of
-                    # one step while another one is still working and not responsive
-                    # to the None request.
-                    proc.ctrl_socket.send_pyobj(None)
-                    close_socket(proc.ctrl_socket, 'worker control socket', now=True)
-                close_socket(proc.socket, now=True)
-        cnt = 0
-        while cnt < 500:
-            # wait at most 5 second for all processes to be
-            # finished by themselves.
-            if any(x.worker.is_alive() for x in self.procs + self.pool if x.worker):
-                time.sleep(0.01)
-                cnt += 1
-            else:
-                return
-        # if the workers cannot kill themselves, give a warning
-        for proc in self.procs + self.pool:
-            if proc.worker.is_alive():
-                proc.worker.terminate()
-                proc.worker.join()
+            self.worker_backend_socket.recv()
+            self.worker_backend_socket.send_pyobj(None)
+            close_socket(proc.socket, now=True)
+        close_socket(self.worker_backend_socket)
+
 
 class Base_Executor:
     '''This is the base class of all executor that provides common
@@ -1093,15 +1071,16 @@ class Base_Executor:
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
+
+                if manager.worker_backend_socket.poll(0):
+                    # if the ctrl_socket has a message, it means the worker is asking for more
+                    # job proactively
+                    manager.send_to_proc()
+
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
                         continue
-
-                    if proc.ctrl_socket is not None and proc.ctrl_socket.poll(0):
-                        # if the ctrl_socket has a message, it means the worker is asking for more
-                        # job proactively
-                        manager.send_to_proc(proc)
 
                     # echck if there is any message from the socket
                     if not proc.socket.poll(0):
