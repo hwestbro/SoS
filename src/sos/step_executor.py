@@ -1380,9 +1380,9 @@ class Base_Step_Executor:
                 #
             if self._subworkflow_results:
                 wf_ids = sum([x['pending_workflows'] for x in self._subworkflow_results], [])
-                for _ in wf_ids:
+                for wf_id in wf_ids:
                     # here we did not check if workflow ids match
-                    res = yield "env.__socket__.recv_pyobj()"
+                    res = yield f"result for workflow {wf_id}"
                     if res is None:
                         sys.exit(0)
                     elif isinstance(res, Exception):
@@ -1525,7 +1525,7 @@ class Step_Executor(Base_Step_Executor):
         results = {}
         while True:
             # yield an indicator of what is requested, for debugging purpose
-            res = yield "self.socket.recv_pyobj()"
+            res = yield "result of task"
             if res is None:
                 sys.exit(0)
             results.update(res)
@@ -1537,7 +1537,7 @@ class Step_Executor(Base_Step_Executor):
 
     def handle_unknown_target(self, e):
         self.socket.send_pyobj(['missing_target', e.target])
-        res = yield "self.socket.recv_pyobj()"
+        res = yield f"missing target {e.target}"
         if not res:
             raise e
 
@@ -1554,7 +1554,7 @@ class Step_Executor(Base_Step_Executor):
             return
 
         self.socket.send_pyobj(['dependent_target'] + traced)
-        res = yield "self.socket.recv_pyobj()"
+        res = yield f"dependent target {traced}"
         if res != 'target_resolved':
             raise RuntimeError(f'Failed to veryify dependent target {traced}')
 

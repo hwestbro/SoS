@@ -290,8 +290,10 @@ class RuntimeEnvironments(object):
 
     def switch(self, idx):
         # save old env
+        if idx == self._sub_idx:
+            return
         self._sub_envs[self._sub_idx]['sos_dict'] = self.sos_dict
-        if len(self._sub_envs) > idx:
+        if len(self._sub_envs) <= idx:
             self.sos_dict = WorkflowDict()
         else:
             self.sos_dict = self._sub_envs[idx]['sos_dict']

@@ -115,24 +115,23 @@ class SoS_Worker(mp.Process):
 
 
     def _process_job(self):
+        env.switch(self._stack_idx)
+
         if len(self._master_sockets) > self._stack_idx:
-            env.switch(self._stack_idx)
             # if current stack is ok
             env.master_socket = self._master_sockets[self._stack_idx]
         else:
-            # use a new env
-            env.switch(self._stack_idx)
             # a new socket is needed
             env.master_socket = create_socket(env.zmq_context, zmq.PAIR)
-            port = socket.bind_to_random_port('tcp://127.0.0.1')
-            self.master_sockets.append(env.master_socket)
-            self.master_ports.append(port)
+            port = env.master_socket.bind_to_random_port('tcp://127.0.0.1')
+            self._master_sockets.append(env.master_socket)
+            self._master_ports.append(port)
 
         # send the current socket number as a way to notify the availability of worker
         env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
         work = env.ctrl_socket.recv_pyobj()
         env.logger.trace(
-            f'Worker {self.name} receives request {short_repr(work)}')
+            f'Worker {self.name} receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if work is None:
             return False
@@ -151,9 +150,12 @@ class SoS_Worker(mp.Process):
 
                     while True:
                         # wait 0.1s
+                        env.logger.error(f'waiting for request {requested}')
                         if env.master_socket.poll(100):
                             # we get a response very quickly, so we continue
                             yres = env.master_socket.recv_pyobj()
+                            env.logger.error(f'receive {yres} for request {requested}')
+
                             requested = runner.send(yres)
                             break
                         # now let us ask if the master has something else for us

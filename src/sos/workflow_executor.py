@@ -189,6 +189,22 @@ class ExecutionManager(object):
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
 
+    def send_to_proc(self, proc):
+        master_port = proc.ctrl_socket.recv_pyobj()
+        if not self.step_queue:
+            proc.ctrl_socket.send(None)
+            return
+        runnable, spec = self.step_queue.popitem()
+        # spec is already pickled to "freeze" them
+        proc.ctrl_socket.send(spec)
+
+        master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
+        master_socket.connect(f'tcp://127.0.0.1:{master_port}')
+        # we need to create a separaate ProcInfo to keep track of the step
+        self.procs.append(
+            ProcInfo(worker=proc.worker, ctrl_socket=proc.ctrl_socket,
+                socket=master_socket, port=master_port, step=runnable))
+
     def send_new(self):
         if not self.step_queue:
             return False
@@ -1089,6 +1105,12 @@ class Base_Executor:
                             continue
                         else:
                             raise RuntimeError('A worker has been killed. Quitting.')
+
+                    if proc.ctrl_socket is not None and proc.ctrl_socket.poll(0):
+                        # if the ctrl_socket has a message, it means the worker is asking for more
+                        # job proactively
+                        manager.send_to_proc(proc)
+
                     # receieve something from the worker
                     res = proc.socket.recv_pyobj(zmq.NOBLOCK)
                     runnable = proc.step
