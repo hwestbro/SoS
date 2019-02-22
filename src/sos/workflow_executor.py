@@ -143,7 +143,7 @@ class ExecutionManager(object):
         # wait for a port number from the worker master socket
         if not self.pool:
             # create a new worker and new socket etc
-            worker = SoS_Worker(config=self.config, args=self.args)
+            worker = SoS_Worker(config=self.config, args=self.args, step_backend=True)
             worker.start()
 
             master_port = self.worker_backend_socket.recv_pyobj()

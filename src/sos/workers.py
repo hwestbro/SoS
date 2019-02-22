@@ -29,7 +29,8 @@ class SoS_Worker(mp.Process):
     Worker process to process SoS step or workflow in separate process.
     '''
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None, **kwargs) -> None:
+    def __init__(self, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None,
+            step_backend=False, **kwargs) -> None:
         '''
 
         config:
@@ -54,6 +55,7 @@ class SoS_Worker(mp.Process):
         self._master_sockets = []
         self._master_ports = []
         self._stack_idx = 0
+        self.step_backend = step_backend
 
     def reset_dict(self):
         env.sos_dict = WorkflowDict()
@@ -81,8 +83,12 @@ class SoS_Worker(mp.Process):
         env.zmq_context = connect_controllers()
 
         # create controller socket
-        env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ)
-        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["worker_backend"]}')
+        if self.step_backend:
+            env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ, 'worker backend')
+            env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["worker_backend"]}')
+        else:
+            env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ, 'substep backend')
+            env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["substep_backend"]}')
 
         signal.signal(signal.SIGTERM, signal_handler)
 
@@ -91,6 +97,10 @@ class SoS_Worker(mp.Process):
         port = env.master_socket.bind_to_random_port('tcp://127.0.0.1')
         self._master_sockets.append(env.master_socket)
         self._master_ports.append(port)
+
+        # result socket used by substeps
+        env.result_socket = None
+        env.result_socket_port = None
 
         # wait to handle jobs
         while True:
@@ -107,6 +117,9 @@ class SoS_Worker(mp.Process):
         # Finished
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
         kill_all_subprocesses(os.getpid())
+
+        close_socket(env.result_socket, 'substep result', now=True)
+
         for socket in self._master_sockets:
             close_socket(socket, 'worker master', now=True)
         close_socket(env.ctrl_socket, now=True)
@@ -133,7 +146,6 @@ class SoS_Worker(mp.Process):
     def _process_job(self):
         # send the current socket number as a way to notify the availability of worker
         env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
-        env.logger.trace(f'worker sent port')
         work = env.ctrl_socket.recv_pyobj()
         env.logger.trace(
             f'Worker {self.name} receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
@@ -143,7 +155,9 @@ class SoS_Worker(mp.Process):
         elif not work: # an empty task {}
             return True
 
-        if work[0] == 'step':
+        if isinstance(work, dict):
+            self.run_substep(work)
+        elif work[0] == 'step':
             # this is a step ...
             runner = self.run_step(*work[1:])
             try:
@@ -243,48 +257,7 @@ class SoS_Worker(mp.Process):
         except StopIteration:
             pass
 
-
-class SoS_SubStep_Worker(mp.Process):
-    '''
-    Worker process to process SoS step or workflow in separate process.
-    '''
-    LRU_READY = "READY"
-
-    def __init__(self, config={}, **kwargs) -> None:
-        # the worker process knows configuration file, command line argument etc
-        super(SoS_SubStep_Worker, self).__init__(**kwargs)
-        self.config = config
-        self.daemon = True
-
-    def run(self):
-
-        # env.logger.warning(f'Substep worker created {os.getpid()}')
-
-        env.config.update(self.config)
-        env.zmq_context = connect_controllers()
-        signal.signal(signal.SIGTERM, signal_handler)
+    def run_substep(self, work):
         from .substep_executor import execute_substep
-        env.master_socket = create_socket(env.zmq_context, zmq.REQ, 'substep backend')
-        env.master_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["substep_backend"]}')
-        env.logger.trace(f'Substep worker {os.getpid()} started')
+        execute_substep(**work)
 
-        env.result_socket = None
-        env.result_socket_port = None
-
-        while True:
-            env.master_socket.send_pyobj(self.LRU_READY)
-            msg = env.master_socket.recv_pyobj()
-            if not msg:
-                break
-
-            env.logger.debug(f'Substep worker {os.getpid()} receives request {short_repr(msg)}')
-            execute_substep(**msg)
-
-        signal.signal(signal.SIGTERM, signal.SIG_DFL)
-        kill_all_subprocesses(os.getpid())
-
-        close_socket(env.result_socket, 'substep result', now=True)
-        close_socket(env.master_socket, 'substep backend', now=True)
-        disconnect_controllers(env.zmq_context)
-
-        # env.logger.warning(f'Substep worker terminated {os.getpid()}')

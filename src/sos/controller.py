@@ -207,13 +207,13 @@ class WorkerManager(object):
 
     def report(self, msg):
         return
-        env.logger.trace(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._frontend_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
+        # env.logger.trace(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._frontend_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
 
     def add_request(self, msg):
         self._frontend_requests.insert(0, msg)
         self.report('add_request')
 
-    def process_request(self):
+    def process_request(self, port):
         self._n_ready += 1
         if self._frontend_requests:
             msg = self._frontend_requests.pop()
@@ -244,8 +244,8 @@ class WorkerManager(object):
         return True
 
     def start(self):
-        from .workers import SoS_SubStep_Worker
-        worker = SoS_SubStep_Worker(env.config)
+        from .workers import SoS_Worker
+        worker = SoS_Worker(env.config)
         worker.start()
         self._substep_workers.append(worker)
         self._n_working_workers += 1
@@ -290,8 +290,6 @@ class Controller(threading.Thread):
     need to talk to the same controller (signature, controller etc) when
     they are executed in sos or sos notebook.
     '''
-    LRU_READY = "READY"
-
     def __init__(self, ready, kernel=None):
         threading.Thread.__init__(self)
         #self.daemon = True
@@ -457,12 +455,12 @@ class Controller(threading.Thread):
             return False
 
         # Forward message to client if it's not a READY
-        if msg != self.LRU_READY:
+        if not isinstance(msg, int):
             raise RuntimeError(
-                f'substep worker should only send ready message: {msg} received')
+                f'substep worker should only send ready message with port number: {msg} received')
 
         # now see if we have any work to do, if the process will be marked as pending
-        self.workers.process_request()
+        self.workers.process_request(msg)
 
     def handle_tapping_logging_msg(self, msg):
         if env.config['exec_mode'] == 'both':
