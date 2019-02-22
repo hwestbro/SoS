@@ -1545,9 +1545,12 @@ class Base_Executor:
                 manager.cleanup()
                 # step 3: check if there is room and need for another job
                 while True:
+                    if not dag.dirty():
+                        break
                     # with status.
                     runnable = dag.find_executable()
                     if runnable is None:
+                        dag.mark_dirty(False)
                         break
 
                     # find the section from runnable

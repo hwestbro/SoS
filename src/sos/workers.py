@@ -147,23 +147,17 @@ class SoS_Worker(mp.Process):
             # this is a step ...
             runner = self.run_step(*work[1:])
             try:
-                requested = next(runner)
+                poller = next(runner)
                 while True:
                     # if request is None, it is a normal "break" and
                     # we do not need to jump off
-                    if requested is None:
-                        requested = runner.send(None)
+                    if poller is None:
+                        poller = runner.send(None)
                         continue
 
                     while True:
-                        # wait 0.1s
-                        env.logger.error(f'waiting for request {requested}')
-                        if env.master_socket.poll(100):
-                            # we get a response very quickly, so we continue
-                            yres = env.master_socket.recv_pyobj()
-                            env.logger.error(f'receive {yres} for request {requested}')
-
-                            requested = runner.send(yres)
+                        if poller.poll(200):
+                            poller = runner.send(None)
                             break
                         # now let us ask if the master has something else for us
                         self.push_env()
