@@ -87,11 +87,7 @@ class ProcInfo(object):
         self.step._status = status
 
     def is_alive(self):
-        # avoid calling is_alive too many times
-        if time.time() - self._last_alive < 1:
-            return True
-        else:
-            return False
+        return True
 
     def in_status(self, status: str) -> bool:
         return self.step._status == status
