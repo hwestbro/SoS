@@ -116,7 +116,6 @@ class SoS_Worker(mp.Process):
 
 
     def _process_job(self):
-
         if len(self._master_sockets) > self._stack_idx:
             # if current stack is ok
             env.master_socket = self._master_sockets[self._stack_idx]

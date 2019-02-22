@@ -227,9 +227,13 @@ class ExecutionManager(object):
             # in which case we should not send anything
             if proc.worker.is_alive():
                 if not proc.ctrl_socket.closed:
+                    # we send None to the worker but the worker might be busy
+                    # e.g. when the workflow is terminated by the failure of
+                    # one step while another one is still working and not responsive
+                    # to the None request.
                     proc.ctrl_socket.send_pyobj(None)
                     close_socket(proc.ctrl_socket, 'worker control socket', now=True)
-                close_socket(proc.socket, now=True)        
+                close_socket(proc.socket, now=True)
         cnt = 0
         while cnt < 500:
             # wait at most 5 second for all processes to be
@@ -244,7 +248,6 @@ class ExecutionManager(object):
             if proc.worker.is_alive():
                 proc.worker.terminate()
                 proc.worker.join()
-
 
 class Base_Executor:
     '''This is the base class of all executor that provides common

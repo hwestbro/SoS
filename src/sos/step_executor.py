@@ -652,6 +652,8 @@ class Base_Step_Executor:
             raise RuntimeError(e.stderr)
         except ArgumentError:
             raise
+        except ProcessKilled:
+            raise
         except Exception as e:
             raise RuntimeError(get_traceback_msg(e))
 
@@ -1577,9 +1579,12 @@ class Step_Executor(Base_Step_Executor):
         except Exception as e:
             if env.verbosity > 2:
                 sys.stderr.write(get_traceback())
-            if self.socket is not None:
+            if self.socket is not None and not self.socket.closed:
                 env.logger.debug(
                     f'Step {self.step.step_name()} sends exception {e}')
-                self.socket.send_pyobj(e)
+                if isinstance(e, ProcessKilled):
+                    raise
+                else:
+                    self.socket.send_pyobj(e)
             else:
                 raise e
