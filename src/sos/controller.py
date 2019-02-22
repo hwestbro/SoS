@@ -323,13 +323,13 @@ class Controller(threading.Thread):
 
     def handle_master_push_msg(self, msg):
         try:
-            if isinstance(msg, dict):  # substep
-                if self.workers.use_pending(msg):
+            if msg[0] == 'substep':
+                if self.workers.use_pending(msg[1]):
                     # in this case the msg is directly consumed by a pending worker
                     return
 
                 # cache the request, route to first available worker
-                self.workers.add_request(msg)
+                self.workers.add_request(msg[1])
                 # start a worker is necessary
                 if self.workers.num_working() == 0 or self.workers.num_working() + self._nprocs < env.config['max_procs']:
                     self.workers.start()

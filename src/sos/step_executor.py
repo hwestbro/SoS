@@ -668,8 +668,8 @@ class Base_Step_Executor:
         yield None
         raise e
 
-    def submit_substep(self, substep):
-        send_message_to_controller(substep)
+    def submit_substep(self, param):
+        send_message_to_controller(['substep', param])
 
     def process_returned_substep_result(self, till=None, wait=True):
         while True:
