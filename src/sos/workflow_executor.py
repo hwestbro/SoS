@@ -1100,6 +1100,12 @@ class Base_Executor:
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
                         continue
+
+                    if proc.ctrl_socket is not None and proc.ctrl_socket.poll(0):
+                        # if the ctrl_socket has a message, it means the worker is asking for more
+                        # job proactively
+                        manager.send_to_proc(proc)
+
                     # echck if there is any message from the socket
                     if not proc.socket.poll(0):
                         if proc.is_alive():
@@ -1107,10 +1113,6 @@ class Base_Executor:
                         else:
                             raise RuntimeError('A worker has been killed. Quitting.')
 
-                    if proc.ctrl_socket is not None and proc.ctrl_socket.poll(0):
-                        # if the ctrl_socket has a message, it means the worker is asking for more
-                        # job proactively
-                        manager.send_to_proc(proc)
 
                     # receieve something from the worker
                     res = proc.socket.recv_pyobj(zmq.NOBLOCK)

@@ -113,10 +113,9 @@ class SoS_Worker(mp.Process):
         close_socket(env.ctrl_socket, now=True)
         disconnect_controllers(env.zmq_context)
 
-
-    def _process_job(self):
+    def push_env(self):
+        self._stack_idx += 1
         env.switch(self._stack_idx)
-
         if len(self._master_sockets) > self._stack_idx:
             # if current stack is ok
             env.master_socket = self._master_sockets[self._stack_idx]
@@ -127,6 +126,12 @@ class SoS_Worker(mp.Process):
             self._master_sockets.append(env.master_socket)
             self._master_ports.append(port)
 
+    def pop_env(self):
+        self._stack_idx -= 1
+        env.switch(self._stack_idx)
+        env.master_socket = self._master_sockets[self._stack_idx]
+
+    def _process_job(self):
         # send the current socket number as a way to notify the availability of worker
         env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
         work = env.ctrl_socket.recv_pyobj()
@@ -161,9 +166,9 @@ class SoS_Worker(mp.Process):
                             requested = runner.send(yres)
                             break
                         # now let us ask if the master has something else for us
-                        self._stack_idx += 1
+                        self.push_env()
                         self._process_job()
-                        self._stack_idx -= 1
+                        self.pop_env()
             except StopIteration as e:
                 pass
         else:

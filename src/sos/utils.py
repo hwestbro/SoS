@@ -294,9 +294,8 @@ class RuntimeEnvironments(object):
             return
         self._sub_envs[self._sub_idx]['sos_dict'] = self.sos_dict
         if len(self._sub_envs) <= idx:
-            self.sos_dict = WorkflowDict()
-        else:
-            self.sos_dict = self._sub_envs[idx]['sos_dict']
+            self._sub_envs.append({'sos_dict': WorkflowDict()})
+        self.sos_dict = self._sub_envs[idx]['sos_dict']
         self._sub_idx = idx
 
     _exec_dir = None
