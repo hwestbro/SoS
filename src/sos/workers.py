@@ -52,7 +52,6 @@ class SoS_Worker(mp.Process):
         self.args = [] if args is None else args
 
         # there can be multiple jobs for this worker, each using their own port and socket
-        self._envs = []
         self._master_sockets = []
         self._master_ports = []
         self._stack_idx = 0
@@ -117,9 +116,12 @@ class SoS_Worker(mp.Process):
 
     def _process_job(self):
         if len(self._master_sockets) > self._stack_idx:
+            env.switch(self._stack_idx)
             # if current stack is ok
             env.master_socket = self._master_sockets[self._stack_idx]
         else:
+            # use a new env
+            env.switch(self._stack_idx)
             # a new socket is needed
             env.master_socket = create_socket(env.zmq_context, zmq.PAIR)
             port = socket.bind_to_random_port('tcp://127.0.0.1')
@@ -146,24 +148,18 @@ class SoS_Worker(mp.Process):
                     if requested is None:
                         requested = runner.send(None)
                         continue
-                    # wait for a reply from the socket
-                    yres = env.master_socket.recv_pyobj()
-                    requested = runner.send(yres)
-                    #
-                    # while True:
-                    #     # wait 0.1s
-                    #     if env.master_socket.poll(100):
-                    #         # we get a response very quickly, so we continue
-                    #         yres = env.master_socket.recv_pyobj()
-                    #         requested = runner.send(None)
-                    #         break
-                    #     # now let us ask if the master has something else for us
-                    #     env.ctrl_socket.send(b'YIELDED')
-                    #     res = env.ctrl_socket.recv_pyobj()
-                    #     if res is not None:
-                    #         # if there is some job to do
-                    #         self._run()
 
+                    while True:
+                        # wait 0.1s
+                        if env.master_socket.poll(100):
+                            # we get a response very quickly, so we continue
+                            yres = env.master_socket.recv_pyobj()
+                            requested = runner.send(yres)
+                            break
+                        # now let us ask if the master has something else for us
+                        self._stack_idx += 1
+                        self._process_job()
+                        self._stack_idx -= 1
             except StopIteration as e:
                 pass
         else:

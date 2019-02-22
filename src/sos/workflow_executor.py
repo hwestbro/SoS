@@ -171,7 +171,7 @@ class ExecutionManager(object):
             else:
                 close_socket(pi.socket, 'executor master socket', now=True)
                 master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
-                master_socket.connect(f'tcp://127.0.0.1:{master_port}')                
+                master_socket.connect(f'tcp://127.0.0.1:{master_port}')
 
         # we need to report number of active works, plus master process itself
         send_message_to_controller(['nprocs', self.num_active() + 1])
@@ -197,8 +197,7 @@ class ExecutionManager(object):
         return True
 
     def num_active(self) -> int:
-        return len([x for x in self.procs if x and not x.is_pending()
-                    and not x.in_status('failed')])
+        return len([x for x in self.procs if x])
 
     def all_busy(self) -> bool:
         return self.num_active() >= self.max_workers
