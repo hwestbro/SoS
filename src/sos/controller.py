@@ -355,16 +355,7 @@ class Controller(threading.Thread):
 
 
     def handle_worker_backend_msg(self, msg):
-        # Use worker address for LRU routing
-        if not msg:
-            return False
-
-        # Forward message to client if it's not a READY
-        if not isinstance(msg, int):
-            raise RuntimeError(
-                f'substep worker should only send ready message with port number: {msg} received')
-
-        # now see if we have any work to do, if the process will be marked as pending
+        # msg should be a port number from the worker
         self.workers.process_request(msg)
 
     def handle_tapping_logging_msg(self, msg):

@@ -279,13 +279,14 @@ class WorkerManager(object):
         self._worker_backend_socket = backend_socket
 
         self._available_ports = set()
+        self._claimed_ports = set()
 
         # start a worker
         self.start()
 
     def report(self, msg):
         #return
-        env.logger.warning(f'{msg}: workers: {self._num_workers} pending requests: {len(self._substep_requests)}, requested: {self._n_requested}, processed: {self._n_processed}')
+        env.logger.warning(f'{msg}: workers: {self._num_workers}, requested: {self._n_requested}, processed: {self._n_processed}')
 
     def add_request(self, port, msg):
         if port is None:
@@ -297,12 +298,14 @@ class WorkerManager(object):
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers
-        if self._n_processed > 0 and self._num_workers < self._max_workers:
+        if self._n_processed > 0 and not self._available_ports and self._num_workers < self._max_workers:
             self.start()
 
     def worker_available(self):
         if self._available_ports:
-            return self._available_ports.pop()
+            claimed = self._available_ports.pop()
+            self._claimed_ports.add(claimed)
+            return claimed
         # no available port, can we start a new worker?
         if self._num_workers < self._max_workers:
             self.start()
@@ -314,20 +317,28 @@ class WorkerManager(object):
             self._worker_backend_socket.send(self._step_requests.pop(port))
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report('process step/workflow')
-            return
-        #
-        if self._substep_requests:
+            self.report(f'process step/workflow with port {port}')
+            # port should be in claimed ports
+            self._claimed_ports.remove(port)
+        elif port in self._claimed_ports:
+            # the port is claimed, but the real message is not yet available
+            self._worker_backend_socket.send_pyobj({})
+            # self.report(f'pending with claimed {port}')
+        elif self._substep_requests:
+            # port is not claimed, free to use for substep worker
             msg = self._substep_requests.pop()
             self._worker_backend_socket.send_pyobj(msg)
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report('process substep')
-            return
-
-        self._available_ports.add(port)
-        # nothing to do yet
-        self._worker_backend_socket.send_pyobj({})
+            self.report('process substep with port {port}')
+            # port can however be in available ports
+            if port in self._available_ports:
+                self._available_ports.remove(port)
+        else:
+            # the port will be available for others to use
+            self._available_ports.add(port)
+            self._worker_backend_socket.send_pyobj({})
+            # self.report(f'pending with port {port}')
 
     def start(self):
         worker = SoS_Worker(env.config)
@@ -348,18 +359,16 @@ class WorkerManager(object):
         if time.time() - self._last_avail_time < 5:
             return
         # we keep at least one worker
-        if self._num_workers == 1:
-            return
-        self._worker_backend_socket.send_pyobj(None)
-        self._num_workers -= 1
-        self.report('kill a long standing workers')
+        while self._num_workers > 1 and self._worker_backend_socket.poll(100):
+            self._worker_backend_socket.recv_pyobj()
+            self._worker_backend_socket.send_pyobj(None)
+            self._num_workers -= 1
+            self.report('kill a long standing workers')
 
     def kill_all(self):
         '''Kill all workers'''
-        for worker in range(self._num_workers):
-            # we should get a ready signal
-            if self._worker_backend_socket.poll(100):
-                self._worker_backend_socket.recv_pyobj()
-                self._worker_backend_socket.send_pyobj(None)
-                self._num_workers -= 1
-                self.report('kill a done worker')
+        while self._num_workers > 0 and self._worker_backend_socket.poll(1000):
+            self._worker_backend_socket.recv_pyobj()
+            self._worker_backend_socket.send_pyobj(None)
+            self._num_workers -= 1
+            self.report('kill a done worker')
