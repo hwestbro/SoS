@@ -104,9 +104,6 @@ class ExecutionManager(object):
         # they will be executed in random but at a higher priority than the steps
         # on the master process.
         self.step_queue = {}
-        self.worker_reply_socket = create_socket(env.zmq_context, zmq.REP, 'worker reply')
-        self.worker_reply_socket.connect(
-            f'tcp://127.0.0.1:{env.config["sockets"]["executor_request"]}')
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
@@ -116,17 +113,18 @@ class ExecutionManager(object):
         self.step_queue[runnable] = spec
 
     def send_to_worker(self):
-        # if all workers are busy, wait 100
-        if not self.worker_reply_socket.poll(100):
-            return False
-        master_port = self.worker_reply_socket.recv_pyobj()
         if not self.step_queue:
-            # nothing needs to be done now, but please do not shutdown the worker yet.
-            self.worker_reply_socket.send(b'')
-            return
+            return False
+
+        # if all workers are busy, wait 100
+        master_port = request_answer_from_controller(['worker_available'])
+        # no worker is available
+        if master_port is None:
+            return False
+
         runnable, spec = self.step_queue.popitem()
-        # spec is already pickled to "freeze" them
-        self.worker_reply_socket.send(spec)
+
+        send_message_to_controller([master_port, spec])
 
         # if there is a pooled proc with the same port, let us use it to avoid re-creating a socket
         proc_with_port = [idx for idx,proc in enumerate(self.pool) if proc.port == master_port]
@@ -160,8 +158,6 @@ class ExecutionManager(object):
             if proc is None:
                 continue
             close_socket(proc.socket)
-        close_socket(self.worker_reply_socket)
-
 
 class Base_Executor:
     '''This is the base class of all executor that provides common

@@ -232,15 +232,11 @@ class Controller(threading.Thread):
     def handle_master_push_msg(self, msg):
         try:
             if msg[0] == 'substep':
-                if self.workers.use_pending(msg):
-                    # in this case the msg is directly consumed by a pending worker
-                    return
-
                 # cache the request, route to first available worker
-                self.workers.add_request(msg)
-                # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
-                if self.workers.num_workers() == 0 or self.workers.num_workers() < env.config['max_procs']:
-                    self.workers.start()
+                self.workers.add_request(None, msg[1])
+            elif isinstance(msg[0], int):
+                # step or workflow, the first number is port number, second is spec
+                self.workers.add_request(msg[0], msg[1])
             elif msg[0] == 'nprocs':
                 env.logger.trace(f'Active running process set to {msg[1]}')
                 self._nprocs = msg[1]
@@ -316,6 +312,8 @@ class Controller(threading.Thread):
                         break
                 if not found:
                     self.master_request_socket.send_pyobj(None)
+            elif msg[0] == 'worker_available':
+                self.master_request_socket.send_pyobj(self.workers.worker_available())
             elif msg[0] == 'done':
                 # handle all ctl_push_msgs #1062
                 while True:
@@ -420,14 +418,9 @@ class Controller(threading.Thread):
         env.config['sockets']['worker_backend'] = self.worker_backend_socket.bind_to_random_port(
             'tcp://127.0.0.1')
 
-        # socket to request tasks from executor
-        self.executor_request_socket = create_socket(self.context, zmq.REQ, 'executor rquest')  # ROUTER
-        env.config['sockets']['executor_request'] = self.executor_request_socket.bind_to_random_port(
-            'tcp://127.0.0.1')
-
         # create a manager
         from .workers import WorkerManager
-        self.workers = WorkerManager(self.worker_backend_socket, self.executor_request_socket)
+        self.workers = WorkerManager(env.config['max_procs'], self.worker_backend_socket)
 
         # tapping
         if env.config['exec_mode'] == 'master':
@@ -542,7 +535,6 @@ class Controller(threading.Thread):
             close_socket(self.master_push_socket, now=True)
             close_socket(self.master_request_socket, now=True)
             close_socket(self.worker_backend_socket, now=True)
-            close_socket(self.executor_request_socket, now=True)
 
             if env.config['exec_mode'] == 'master':
                 close_socket(self.tapping_logging_socket, now=True)
