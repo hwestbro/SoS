@@ -128,13 +128,9 @@ class ExecutionManager(object):
 
         self.args = args
 
-        self.worker_rereply_socket = create_socket(env.zmq_context, zmq.REP, 'worker reply')
-        self.worker_reply_port = self.worker_reply_socket.connect(
+        self.worker_reply_socket = create_socket(env.zmq_context, zmq.REP, 'worker reply')
+        self.worker_reply_socket.connect(
             f'tcp://127.0.0.1:{env.config["sockets"]["executor_request"]}')
-
-        if not 'sockets' in self.config:
-            self.config['sockets'] = {}
-        self.config['sockets']['worker_backend'] = self.worker_backend_port
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
@@ -144,6 +140,8 @@ class ExecutionManager(object):
         self.step_queue[runnable] = spec
 
     def send_to_worker(self):
+        if not self.worker_reply_socket.poll(10000):
+            return False
         master_port = self.worker_reply_socket.recv_pyobj()
         if not self.step_queue:
             # nothing needs to be done now, but please do not shutdown the worker yet.
@@ -157,19 +155,10 @@ class ExecutionManager(object):
         master_socket.connect(f'tcp://127.0.0.1:{master_port}')
         # we need to create a separaate ProcInfo to keep track of the step
         self.procs.append(ProcInfo(socket=master_socket, port=master_port, step=runnable))
-
-    def send_new(self):
-        if not self.step_queue:
-            return False
-        runnable, spec = self.step_queue.popitem()
-        self.execute(runnable, spec=spec)
         return True
 
     def num_active(self) -> int:
         return len([x for x in self.procs if x])
-
-    def all_busy(self) -> bool:
-        return False #self.num_active() >= self.max_workers
 
     def all_done(self) -> bool:
         return not self.procs or all(x is None for x in self.procs)
@@ -190,13 +179,7 @@ class ExecutionManager(object):
 
     def terminate(self) -> None:
         self.cleanup()
-        for proc in self.procs + self.pool:
-            # the process might have been killed #1212
-            # in which case we should not send anything
-            self.worker_backend_socket.recv()
-            self.worker_backend_socket.send_pyobj(None)
-            close_socket(proc.socket, now=True)
-        close_socket(self.worker_backend_socket)
+        close_socket(self.worker_reply_socket)
 
 
 class Base_Executor:
@@ -1027,12 +1010,6 @@ class Base_Executor:
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
-
-                if manager.worker_reply_socket.poll(0):
-                    # if the ctrl_socket has a message, it means the worker is asking for more
-                    # job proactively
-                    manager.send_to_worker()
-
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
@@ -1322,11 +1299,8 @@ class Base_Executor:
                                           env.config, env.verbosity)))
 
                 while True:
-                    if manager.all_busy():
-                        break
-
                     # if steps from child nested workflow?
-                    if not manager.send_new():
+                    if not manager.send_to_worker():
                         break
 
                 if manager.all_done():
