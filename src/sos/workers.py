@@ -200,7 +200,7 @@ class SoS_Worker(mp.Process):
         # have to collect result here
         try:
             runner = executer.run_as_nested(targets=targets, parent_socket=env.master_socket,
-                         my_workflow_id=workflow_id).run()
+                         my_workflow_id=workflow_id)
             try:
                 yreq = next(runner)
                 while True:
