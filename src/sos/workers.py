@@ -199,9 +199,8 @@ class SoS_Worker(mp.Process):
         # everything directly to the master process, so we do not
         # have to collect result here
         try:
-            executer.run_as_nested(targets=targets, parent_socket=env.master_socket,
-                         my_workflow_id=workflow_id)
-            runner = executor.run()
+            runner = executer.run_as_nested(targets=targets, parent_socket=env.master_socket,
+                         my_workflow_id=workflow_id).run()
             try:
                 yreq = next(runner)
                 while True:
