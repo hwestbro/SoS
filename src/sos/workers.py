@@ -154,34 +154,31 @@ class SoS_Worker(mp.Process):
 
         if isinstance(work, dict):
             self.run_substep(work)
-        elif work[0] == 'step':
-            # this is a step ...
-            runner = self.run_step(*work[1:])
-            try:
-                poller = next(runner)
-                while True:
-                    # if request is None, it is a normal "break" and
-                    # we do not need to jump off
-                    if poller is None:
-                        poller = runner.send(None)
-                        continue
+            return True
+        # step and workflow can yield
+        runner = self.run_step(*work[1:]) if work[0] == 'step' else self.run_workflow(*work[1:])
+        try:
+            poller = next(runner)
+            while True:
+                # if request is None, it is a normal "break" and
+                # we do not need to jump off
+                if poller is None:
+                    poller = runner.send(None)
+                    continue
 
-                    while True:
-                        if poller.poll(200):
-                            poller = runner.send(None)
-                            break
-                        # now let us ask if the master has something else for us
-                        self.push_env()
-                        self._process_job()
-                        self.pop_env()
-            except StopIteration as e:
-                pass
-        else:
-            self.run_workflow(*work[1:])
+                while True:
+                    if poller.poll(200):
+                        poller = runner.send(None)
+                        break
+                    # now let us ask if the master has something else for us
+                    self.push_env()
+                    self._process_job()
+                    self.pop_env()
+        except StopIteration as e:
+            pass
         env.logger.debug(
             f'Worker {self.name} completes request {short_repr(work)}')
         return True
-
 
     def run_workflow(self, workflow_id, wf, targets, args, shared, config):
         #
@@ -204,6 +201,15 @@ class SoS_Worker(mp.Process):
         try:
             executer.run_as_nested(targets=targets, parent_socket=env.master_socket,
                          my_workflow_id=workflow_id)
+            runner = executor.run()
+            try:
+                yreq = next(runner)
+                while True:
+                    yres = yield yreq
+                    yreq = runner.send(yres)
+            except StopIteration:
+                pass
+
         except Exception as e:
             env.master_socket.send_pyobj(e)
 

@@ -96,18 +96,24 @@ class ProcInfo(object):
 
 
 class ExecutionManager(object):
+    '''
+    Execution manager that manages sockets and corresponding steps.
+    For nested workflows (dummy=True), a pooler will be created.
+    '''
     # this class managers workers and their status ...
-    def __init__(self) -> None:
+    def __init__(self, dummy=False) -> None:
         self.procs = []
         self.pool = []
         # steps sent and queued from the nested workflow
         # they will be executed in random but at a higher priority than the steps
         # on the master process.
         self.step_queue = {}
+        self.pooler = zmq.Poller() if dummy else None
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
         self.procs.append(ProcInfo(socket=socket, port=None, step=runnable))
+        self.pooler.register(socket, zmq.POLLIN)
 
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
@@ -143,6 +149,7 @@ class ExecutionManager(object):
         return not self.step_queue and (not self.procs or all(x is None for x in self.procs))
 
     def dispose(self, idx: int) -> None:
+        self.pooler.unregister(self.procs[idx].socket)
         close_socket(self.procs[idx].socket)
         self.procs[idx] = None
 
@@ -1340,11 +1347,13 @@ class Base_Executor:
         dag = self.initialize_dag(targets=targets)
 
         # the mansger will have all fake executors
-        manager = ExecutionManager()
+        manager = ExecutionManager(dummy=True)
         #
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
+                # continue only if we get any message from any of the sockets 
+                yield manager.poller
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
