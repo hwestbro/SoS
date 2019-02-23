@@ -285,7 +285,7 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        #return
+        return
         env.logger.warning(f'{msg}: workers: {self._num_workers}, requested: {self._n_requested}, processed: {self._n_processed}')
 
     def add_request(self, port, msg):
@@ -360,7 +360,12 @@ class WorkerManager(object):
             return
         # we keep at least one worker
         while self._num_workers > 1 and self._worker_backend_socket.poll(100):
-            self._worker_backend_socket.recv_pyobj()
+            port = self._worker_backend_socket.recv_pyobj()
+            if port in self._claimed_ports:
+                self._worker_backend_socket.send_pyobj({})
+                continue
+            if port in self._available_ports:
+                self._available_ports.remove(port)
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
             self.report('kill a long standing workers')
