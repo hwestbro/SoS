@@ -509,8 +509,8 @@ class Controller(threading.Thread):
                 #         self._num_clients += 1
                 #     elif evt['event'] == zmq.EVENT_DISCONNECTED:
                 #         self._num_clients -= 1
-        except ProcessKilled:
-            env.logger.error('A substep worker has failed or has been killed externally. Quitting.')
+        except ProcessKilled as e:
+            env.logger.error(str(e))
             os._exit(1)
         except Exception as e:
             sys.stderr.write(f'{env.config["exec_mode"]} get an error {e}')

@@ -265,10 +265,10 @@ class WorkerManager(object):
     def __init__(self, max_workers, backend_socket):
         self._max_workers = max_workers
 
-        self._substep_workers = []
+        self._workers = []
         self._num_workers = 0
         self._n_requested = 0
-        self._n_ready = 0
+        self._n_processed = 0
 
         self._worker_alive_time = time.time()
         self._last_avail_time = time.time()
@@ -284,18 +284,20 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        return
-        env.logger.trace(f'{msg}: workers: {self._num_workers} pending requests: {len(self._substep_requests)}, requested: {self._n_requested}, num_ready: {self._n_ready}')
+        #return
+        env.logger.warning(f'{msg}: workers: {self._num_workers} pending requests: {len(self._substep_requests)}, requested: {self._n_requested}, processed: {self._n_processed}')
 
     def add_request(self, port, msg):
         if port is None:
             self._substep_requests.insert(0, msg)
         else:
             self._step_requests[port] = msg
+        self._n_requested += 1
         self.report(f'add_request')
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
-        if self._num_workers < self._max_workers:
+        # if we are just starting, so do not start two workers
+        if self._n_processed > 0 and self._num_workers < self._max_workers:
             self.start()
 
     def worker_available(self):
@@ -307,31 +309,30 @@ class WorkerManager(object):
         return None
 
     def process_request(self, port):
-        self._n_ready += 1
-
         if port in self._step_requests:
             # if the port is available
             self._worker_backend_socket.send(self._step_requests.pop(port))
-            self.report('process step/workflow')
             self._last_avail_time = time.time()
+            self._n_processed += 1
+            self.report('process step/workflow')
             return
         #
         if self._substep_requests:
             msg = self._substep_requests.pop()
             self._worker_backend_socket.send_pyobj(msg)
-            self.report('process substep')
             self._last_avail_time = time.time()
+            self._n_processed += 1
+            self.report('process substep')
             return
 
         self._available_ports.add(port)
         # nothing to do yet
         self._worker_backend_socket.send_pyobj({})
-        self.report('worker pending')
 
     def start(self):
         worker = SoS_Worker(env.config)
         worker.start()
-        self._substep_workers.append(worker)
+        self._workers.append(worker)
         self._num_workers += 1
         self.report('start worker')
 
@@ -340,9 +341,9 @@ class WorkerManager(object):
         are alive. '''
         if time.time() - self._worker_alive_time > 5:
             self._worker_alive_time = time.time()
-            self._substep_workers = [worker for worker in self._substep_workers if worker.is_alive()]
-            if len(self._substep_workers) < self._num_workers:
-                raise ProcessKilled('Substep worker killed')
+            self._workers = [worker for worker in self._workers if worker.is_alive()]
+            if len(self._workers) < self._num_workers:
+                raise ProcessKilled('One of the workers has been killed.')
         # if there is at least one request has been processed in 5 seconds
         if time.time() - self._last_avail_time < 5:
             return
