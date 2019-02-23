@@ -1540,7 +1540,7 @@ class Step_Executor(Base_Step_Executor):
     def handle_unknown_target(self, e):
         self.socket.send_pyobj(['missing_target', e.target])
         yield self.socket
-        res = self.socket.recv()
+        res = self.socket.recv_pyobj()
         if not res:
             raise e
 
