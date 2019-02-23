@@ -143,16 +143,14 @@ class SoS_Worker(mp.Process):
         # send the current socket number as a way to notify the availability of worker
         env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
         work = env.ctrl_socket.recv_pyobj()
-
+        env.logger.trace(
+            f'Worker {self.name} receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if work is None:
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
-
-        env.logger.trace(
-            f'Worker {self.name} receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if isinstance(work, dict):
             self.run_substep(work)
