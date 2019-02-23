@@ -292,7 +292,7 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        return
+        #return
         env.logger.warning(f'{msg}: workers: {self._num_workers}, requested: {self._n_requested}, processed: {self._n_processed}')
 
     def add_request(self, port, msg):

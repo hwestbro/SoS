@@ -71,8 +71,11 @@ class ExecuteError(Error):
 class dummy_node:
     # a dummy node object to store information of node passed
     # from nested workflow
-    def __init__(self) -> None:
-        pass
+    def __init__(self, name) -> None:
+        self._name = name
+
+    def __repr__(self):
+        return self._name
 
 
 class ProcInfo(object):
@@ -109,6 +112,12 @@ class ExecutionManager(object):
         # on the master process.
         self.step_queue = {}
         self.poller = zmq.Poller() if dummy else None
+        self._dummy = dummy
+
+    def report(self):
+        env.logger.warning('Nested: ' if self._dummy else 'Master: ' + ', '.join(
+            f'{proc.step} {proc.step._status}' for proc in self.procs
+        ))
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
@@ -994,6 +1003,7 @@ class Base_Executor:
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
+                manager.report()
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
@@ -1101,7 +1111,7 @@ class Base_Executor:
 
                             section, context, shared, args, config, verbosity, port = step_params
                             # run it!
-                            runnable = dummy_node()
+                            runnable = dummy_node(section.step_name())
                             runnable._node_id = step_id
                             runnable._status = 'running'
                             runnable._from_nested = True
@@ -1129,7 +1139,7 @@ class Base_Executor:
                                 # for each subworkflow, create a dummy node to track
                                 # its status. Note that this dummy_node does not have
                                 # the _from_nested flag.
-                                wfrunnable = dummy_node()
+                                wfrunnable = dummy_node(wf.name)
                                 wfrunnable._node_id = wid
                                 wfrunnable._status = 'workflow_running_pending'
                                 dag.save(env.config['output_dag'])
@@ -1352,46 +1362,11 @@ class Base_Executor:
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
-                # step 1: find steps to run
-                while True:
-                    if not dag.dirty():
-                        break
-                    # with status.
-                    runnable = dag.find_executable()
-                    if runnable is None:
-                        dag.mark_dirty(False)
-                        break
-
-                    # find the section from runnable
-                    section = self.workflow.section_by_id(runnable._step_uuid)
-                    # execute section with specified input
-                    runnable._status = 'running'
-                    dag.save(env.config['output_dag'])
-
-                    # workflow shared variables
-                    shared = {x: env.sos_dict[x] for x in self.shared.keys(
-                    ) if x in env.sos_dict and pickleable(env.sos_dict[x], x)}
-                    if 'shared' in section.options:
-                        shared.update(self.get_shared_vars(
-                            section.options['shared']))
-
-                    if 'workflow_id' in env.sos_dict:
-                        runnable._context['workflow_id'] = env.sos_dict['workflow_id']
-
-                    # send the step to the parent
-                    step_id = uuid.uuid4()
-                    env.logger.debug(
-                        f'Nested send step {section.step_name()} to master with args {self.args} and context {runnable._context}')
-
-                    socket = create_socket(env.zmq_context, zmq.PAIR, 'worker pair socket')
-                    port = socket.bind_to_random_port('tcp://127.0.0.1')
-                    parent_socket.send_pyobj(['step', step_id, section, runnable._context, shared, self.args,
-                                              env.config, env.verbosity, port])
-                    # the nested workflow also needs a step to receive result
-                    manager.add_placeholder_worker(runnable, socket)
-
-                # continue only if we get any message from any of the sockets
-                yield manager.poller
+                manager.report()
+                # if there are running or pending steps, check if there is any message from master
+                if manager.procs:
+                    # continue only if we get any message from any of the sockets
+                    yield manager.poller
                 # step 1: check existing jobs and see if they are completed
                 for idx, proc in enumerate(manager.procs):
                     if proc is None:
@@ -1469,6 +1444,44 @@ class Base_Executor:
                             f'Nested wokflow received an unrecognized response: {res}')
 
                 manager.cleanup()
+
+                # step 3: find steps to run
+                while True:
+                    if not dag.dirty():
+                        break
+                    # with status.
+                    runnable = dag.find_executable()
+                    if runnable is None:
+                        dag.mark_dirty(False)
+                        break
+
+                    # find the section from runnable
+                    section = self.workflow.section_by_id(runnable._step_uuid)
+                    # execute section with specified input
+                    runnable._status = 'running'
+                    dag.save(env.config['output_dag'])
+
+                    # workflow shared variables
+                    shared = {x: env.sos_dict[x] for x in self.shared.keys(
+                    ) if x in env.sos_dict and pickleable(env.sos_dict[x], x)}
+                    if 'shared' in section.options:
+                        shared.update(self.get_shared_vars(
+                            section.options['shared']))
+
+                    if 'workflow_id' in env.sos_dict:
+                        runnable._context['workflow_id'] = env.sos_dict['workflow_id']
+
+                    # send the step to the parent
+                    step_id = uuid.uuid4()
+                    env.logger.debug(
+                        f'Nested send step {section.step_name()} to master with args {self.args} and context {runnable._context}')
+
+                    socket = create_socket(env.zmq_context, zmq.PAIR, 'worker pair socket')
+                    port = socket.bind_to_random_port('tcp://127.0.0.1')
+                    parent_socket.send_pyobj(['step', step_id, section, runnable._context, shared, self.args,
+                                              env.config, env.verbosity, port])
+                    # the nested workflow also needs a step to receive result
+                    manager.add_placeholder_worker(runnable, socket)
 
                 if manager.all_done():
                     break
