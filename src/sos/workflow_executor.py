@@ -140,7 +140,8 @@ class ExecutionManager(object):
         self.step_queue[runnable] = spec
 
     def send_to_worker(self):
-        if not self.worker_reply_socket.poll(10000):
+        env.logger.error('sendt to worker')
+        if not self.worker_reply_socket.poll(100):
             return False
         master_port = self.worker_reply_socket.recv_pyobj()
         if not self.step_queue:
