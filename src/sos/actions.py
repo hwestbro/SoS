@@ -548,7 +548,8 @@ def sos_run(workflow=None, targets=None, shared=None, args=None, source=None, **
 
         if env.sos_dict.get('__concurrent_subworkflow__', False):
             return {'pending_workflows': wf_ids}
-
+        else:
+            env.logger.warning(f'Running nested workflow {", ".joing(workflows)} in the middle of a step might lead to a deadlock and should be avoided.')
         res = {}
         for wf in wfs:
             wf_res = env.__socket__.recv_pyobj()
