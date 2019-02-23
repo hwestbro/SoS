@@ -1558,7 +1558,7 @@ class Step_Executor(Base_Step_Executor):
 
         self.socket.send_pyobj(['dependent_target'] + traced)
         yield self.socket
-        res = self.socket.recv()
+        res = self.socket.recv_pyobj()
         if res != 'target_resolved':
             raise RuntimeError(f'Failed to veryify dependent target {traced}')
 
