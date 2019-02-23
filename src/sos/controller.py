@@ -210,8 +210,8 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        return
-        # env.logger.trace(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._substep_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
+        # return
+        env.logger.info(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._substep_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
 
     def add_request(self, msg):
         self._substep_requests.insert(0, msg[1])
