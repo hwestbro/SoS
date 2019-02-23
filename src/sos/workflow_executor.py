@@ -116,7 +116,7 @@ class ExecutionManager(object):
 
     def report(self):
         env.logger.warning('Nested: ' if self._dummy else 'Master: ' + ', '.join(
-            f'{proc.step} {proc.step._status}' for proc in self.procs
+            f'{proc.step} {proc.step._status}' for proc in self.procs if proc is not None
         ))
 
     def add_placeholder_worker(self, runnable, socket):
