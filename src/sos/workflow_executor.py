@@ -140,7 +140,7 @@ class ExecutionManager(object):
         return True
 
     def all_done(self) -> bool:
-        return not self.procs or all(x is None for x in self.procs)
+        return not self.step_queue and (not self.procs or all(x is None for x in self.procs))
 
     def dispose(self, idx: int) -> None:
         close_socket(self.procs[idx].socket)
