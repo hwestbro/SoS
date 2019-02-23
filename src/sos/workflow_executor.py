@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional, Union
 from threading import Event
 
 from ._version import __version__
-from .dag import SoS_DAG, SoS_Node
+from .dag import SoS_DAG
 from .eval import SoS_exec
 from .hosts import Host
 from .parser import SoS_Workflow
@@ -30,9 +30,8 @@ from .targets import (BaseTarget, RemovedTarget, UnavailableLock,
                       UnknownTarget, file_target, path, paths,
                       sos_step, sos_targets, sos_variable, textMD5,
                       named_output)
-from .utils import (Error, WorkflowDict, env, get_traceback, ProcessKilled,
+from .utils import (Error, WorkflowDict, env, get_traceback,
                     load_config_files, pickleable, short_repr)
-from .workers import SoS_Worker
 
 __all__ = []
 

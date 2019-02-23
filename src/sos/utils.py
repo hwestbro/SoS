@@ -1588,7 +1588,6 @@ def dot_to_gif(filename: str, warn=None):
             newImages[pngFile] = newImg
 
         # create a gif file from images
-        gifFile = os.path.join(tempDirectory, 'sosDot.gif')
         try:
             with BytesIO() as output:
                 newImages[pngFiles[0]].save(output, save_all=True, format='GIF',
