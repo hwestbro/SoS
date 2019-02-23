@@ -110,7 +110,7 @@ class ExecutionManager(object):
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
-        self.procs.append(ProcInfo(socket=socket, step=runnable))
+        self.procs.append(ProcInfo(socket=socket, port=None, step=runnable))
 
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
@@ -157,6 +157,8 @@ class ExecutionManager(object):
 
     def terminate(self) -> None:
         for proc in self.procs + self.pool:
+            if proc is None:
+                continue
             close_socket(proc.socket)
         close_socket(self.worker_reply_socket)
 
@@ -1342,7 +1344,7 @@ class Base_Executor:
         dag = self.initialize_dag(targets=targets)
 
         # the mansger will have all fake executors
-        manager = ExecutionManager(env.config['max_procs'])
+        manager = ExecutionManager()
         #
         try:
             exec_error = ExecuteError(self.workflow.name)
