@@ -1241,40 +1241,6 @@ class Base_Executor:
                         else:
                             raise RuntimeError(f'Unrecognized response from child process {res}')
 
-                # step 3: check if there is room and need for another job
-                while True:
-                    if not dag.dirty():
-                        break
-                    # find any step that can be executed and run it, and update the DAT
-                    # with status.
-                    runnable = dag.find_executable()
-                    if runnable is None:
-                        # do not try to find executable until the dag becomes dirty again
-                        dag.mark_dirty(False)
-                        break
-
-                    # find the section from runnable
-                    section = self.workflow.section_by_id(runnable._step_uuid)
-                    # execute section with specified input
-                    runnable._status = 'running'
-                    dag.save(env.config['output_dag'])
-
-                    # workflow shared variables
-                    shared = {x: env.sos_dict[x] for x in self.shared.keys(
-                    ) if x in env.sos_dict and pickleable(env.sos_dict[x], x)}
-                    if 'shared' in section.options:
-                        shared.update(self.get_shared_vars(
-                            section.options['shared']))
-
-                    if 'workflow_id' in env.sos_dict:
-                        runnable._context['workflow_id'] = env.sos_dict['workflow_id']
-
-                    env.logger.debug(
-                        f'Master execute {section.md5} from DAG')
-                    manager.push_to_queue(runnable,
-                        spec=pickle.dumps(('step', section, runnable._context, shared, self.args,
-                                          env.config, env.verbosity)))
-
                 while True:
                     # if steps from child nested workflow?
                     if not manager.send_to_worker():
@@ -1352,6 +1318,41 @@ class Base_Executor:
         try:
             exec_error = ExecuteError(self.workflow.name)
             while True:
+                # step 1: submit step to master
+                while True:
+                    if not dag.dirty():
+                        break
+                    # find any step that can be executed and run it, and update the DAT
+                    # with status.
+                    runnable = dag.find_executable()
+                    if runnable is None:
+                        # do not try to find executable until the dag becomes dirty again
+                        dag.mark_dirty(False)
+                        break
+
+                    # find the section from runnable
+                    section = self.workflow.section_by_id(runnable._step_uuid)
+                    # execute section with specified input
+                    runnable._status = 'running'
+                    dag.save(env.config['output_dag'])
+
+                    # workflow shared variables
+                    shared = {x: env.sos_dict[x] for x in self.shared.keys(
+                    ) if x in env.sos_dict and pickleable(env.sos_dict[x], x)}
+                    if 'shared' in section.options:
+                        shared.update(self.get_shared_vars(
+                            section.options['shared']))
+
+                    if 'workflow_id' in env.sos_dict:
+                        runnable._context['workflow_id'] = env.sos_dict['workflow_id']
+
+                    env.logger.debug(
+                        f'Master execute {section.md5} from DAG')
+                    manager.push_to_queue(runnable,
+                        spec=pickle.dumps(('step', section, runnable._context, shared, self.args,
+                                          env.config, env.verbosity)))
+
+
                 # continue only if we get any message from any of the sockets
                 yield manager.poller
                 # step 1: check existing jobs and see if they are completed

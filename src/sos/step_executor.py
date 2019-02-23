@@ -962,6 +962,13 @@ class Base_Step_Executor:
         self._all_outputs = set()
         self._subworkflow_results = []
 
+        if any('sos_run' in x[1] for x in self.step.statements[input_statement_idx:]) and \
+            'shared' not in self.step.options and not self.step.task and \
+            len([x for x in self.step.statements[input_statement_idx:] if x[0] == '!']) == 1 and \
+            self.step.statements[-1][0] == '!' and \
+            is_sos_run_the_only_last_stmt(self.step.statements[-1][1]):
+            env.sos_dict.set('__concurrent_subworkflow__', True)
+
         if self.concurrent_substep:
             if len(self._substeps) <= 1 or env.config['run_mode'] == 'dryrun':
                 self.concurrent_substep = False
@@ -972,15 +979,7 @@ class Base_Step_Executor:
                     'Substeps are executed sequentially because of existence of directives between statements.')
             elif any('sos_run' in x[1] for x in self.step.statements[input_statement_idx:]):
                 self.concurrent_substep = False
-                if 'shared' not in self.step.options and not self.step.task and \
-                    len([x for x in self.step.statements[input_statement_idx:] if x[0] == '!']) == 1 and \
-                    self.step.statements[-1][0] == '!' and \
-                    is_sos_run_the_only_last_stmt(self.step.statements[-1][1]):
-                    env.sos_dict.set('__concurrent_subworkflow__', True)
-                    env.logger.debug(
-                        'Running nested workflows concurrently.')
-                else:
-                    env.logger.debug(
+                env.logger.debug(
                         'Substeps are executed sequentially because of existence of multiple nested workflow.')
             else:
                 self.prepare_substep()
