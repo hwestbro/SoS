@@ -30,7 +30,7 @@ class SoS_Worker(mp.Process):
     '''
 
     def __init__(self, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None,
-            step_backend=False, **kwargs) -> None:
+            **kwargs) -> None:
         '''
 
         config:
@@ -55,7 +55,6 @@ class SoS_Worker(mp.Process):
         self._master_sockets = []
         self._master_ports = []
         self._stack_idx = 0
-        self.step_backend = step_backend
 
     def reset_dict(self):
         env.sos_dict = WorkflowDict()
@@ -83,12 +82,8 @@ class SoS_Worker(mp.Process):
         env.zmq_context = connect_controllers()
 
         # create controller socket
-        if self.step_backend:
-            env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ, 'worker backend')
-            env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["worker_backend"]}')
-        else:
-            env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ, 'substep backend')
-            env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["substep_backend"]}')
+        env.ctrl_socket = create_socket(env.zmq_context, zmq.REQ, 'worker backend')
+        env.ctrl_socket.connect(f'tcp://127.0.0.1:{self.config["sockets"]["worker_backend"]}')
 
         signal.signal(signal.SIGTERM, signal_handler)
 

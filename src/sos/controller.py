@@ -194,7 +194,7 @@ class DotProgressBar:
 class WorkerManager(object):
     # manager worker processes
 
-    def __init__(self, backend_socket):
+    def __init__(self, backend_socket, executor_socket):
         self._substep_workers = []
         self._n_working_workers = 0
         self._n_requested = 0
@@ -202,43 +202,55 @@ class WorkerManager(object):
         self._worker_pending_time = None
         self._worker_alive_time = time.time()
 
-        self._frontend_requests = []
-        self._substep_backend_socket = backend_socket
+        self._substep_requests = []
+        self._worker_backend_socket = backend_socket
+        self._executor_request_socket = executor_socket
+
+        # start a worker
+        self.start()
 
     def report(self, msg):
         return
-        # env.logger.trace(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._frontend_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
+        # env.logger.trace(f'{msg}: workers: {self._n_working_workers} pending requests: {len(self._substep_requests)}, pending: {self._worker_pending_time is not None}, requested: {self._n_requested}, num_ready: {self._n_ready}')
 
     def add_request(self, msg):
-        self._frontend_requests.insert(0, msg)
-        self.report('add_request')
+        self._substep_requests.insert(0, msg[1])
+        self.report(f'add_request')
 
     def process_request(self, port):
         self._n_ready += 1
-        if self._frontend_requests:
-            msg = self._frontend_requests.pop()
-            self._substep_backend_socket.send_pyobj(msg)
-            self.report('process request')
-        elif self._worker_pending_time is not None:
+        if self._substep_requests:
+            msg = self._substep_requests.pop()
+            self._worker_backend_socket.send_pyobj(msg)
+            self.report('process substep')
+            return
+        # ask the executor if there is any step to execute
+        self._executor_request_socket.send_pyobj(port)
+        msg = self._executor_request_socket.recv()
+        if msg:
+            self._worker_backend_socket.send(msg)
+            self.report('process step or workflow')
+            return
+        if self._worker_pending_time is not None:
             # if there is a pending worker and another has also been completed
             # kill one.
             self._worker_pending_time = time.time()
-            self._substep_backend_socket.send_pyobj(None)
+            self._worker_backend_socket.send_pyobj(None)
             self._n_working_workers -= 1
             self.report('kill one worker')
-        else:
-            # one or more messages are pending
-            self._worker_pending_time = time.time()
-            self.report('worker pending')
+            return
+        # one or more messages are pending
+        self._worker_pending_time = time.time()
+        self.report('worker pending')
 
-    def num_working(self):
+    def num_workers(self):
         return self._n_working_workers
 
     def use_pending(self, msg):
         self._n_requested += 1
         if not self._worker_pending_time:
             return False
-        self._substep_backend_socket.send_pyobj(msg)
+        self._worker_backend_socket.send_pyobj(msg)
         self._worker_pending_time = None
         self.report('resume pending')
         return True
@@ -262,7 +274,10 @@ class WorkerManager(object):
         # a pending worker can survive 5 seconds without job
         if self._worker_pending_time is None or time.time() - self._worker_pending_time < 2:
             return
-        self._substep_backend_socket.send_pyobj(None)
+        # we keep at least one worker
+        if self._n_working_workers == 1:
+            return
+        self._worker_backend_socket.send_pyobj(None)
         self._n_working_workers -= 1
         self._worker_pending_time = None
         self.report('kill a long standing workers')
@@ -270,15 +285,15 @@ class WorkerManager(object):
     def kill_all(self):
         '''Kill all workers'''
         if self._worker_pending_time:
-            self._substep_backend_socket.send_pyobj(None)
+            self._worker_backend_socket.send_pyobj(None)
             self._n_working_workers -= 1
             self.report('kill a pending worker')
         # there are a few more workers
         for worker in range(self._n_working_workers):
             # we should get a ready signal
-            if self._substep_backend_socket.poll(100):
-                self._substep_backend_socket.recv_pyobj()
-                self._substep_backend_socket.send_pyobj(None)
+            if self._worker_backend_socket.poll(100):
+                self._worker_backend_socket.recv_pyobj()
+                self._worker_backend_socket.send_pyobj(None)
                 self._n_working_workers -= 1
                 self.report('kill a done worker')
 
@@ -324,16 +339,15 @@ class Controller(threading.Thread):
     def handle_master_push_msg(self, msg):
         try:
             if msg[0] == 'substep':
-                if self.workers.use_pending(msg[1]):
+                if self.workers.use_pending(msg):
                     # in this case the msg is directly consumed by a pending worker
                     return
 
                 # cache the request, route to first available worker
-                self.workers.add_request(msg[1])
-                # start a worker is necessary
-                if self.workers.num_working() == 0 or self.workers.num_working() + self._nprocs < env.config['max_procs']:
+                self.workers.add_request(msg)
+                # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
+                if self.workers.num_workers() == 0 or self.workers.num_workers() < env.config['max_procs']:
                     self.workers.start()
-
             elif msg[0] == 'nprocs':
                 env.logger.trace(f'Active running process set to {msg[1]}')
                 self._nprocs = msg[1]
@@ -449,7 +463,7 @@ class Controller(threading.Thread):
             self.master_request_socket.send_pyobj(None)
 
 
-    def handle_substep_backend_msg(self, msg):
+    def handle_worker_backend_msg(self, msg):
         # Use worker address for LRU routing
         if not msg:
             return False
@@ -509,12 +523,17 @@ class Controller(threading.Thread):
             'tcp://127.0.0.1')
 
         # broker to handle the execution of substeps
-        self.substep_backend_socket = create_socket(self.context, zmq.REP, 'controller backend rep')  # ROUTER
-        env.config['sockets']['substep_backend'] = self.substep_backend_socket.bind_to_random_port(
+        self.worker_backend_socket = create_socket(self.context, zmq.REP, 'controller backend rep')  # ROUTER
+        env.config['sockets']['worker_backend'] = self.worker_backend_socket.bind_to_random_port(
+            'tcp://127.0.0.1')
+
+        # socket to request tasks from executor
+        self.executor_request_socket = create_socket(self.context, zmq.REQ, 'executor rquest')  # ROUTER
+        env.config['sockets']['executor_request'] = self.executor_request_socket.bind_to_random_port(
             'tcp://127.0.0.1')
 
         # create a manager
-        self.workers = WorkerManager(self.substep_backend_socket)
+        self.workers = WorkerManager(self.worker_backend_socket, self.executor_request_socket)
 
         # tapping
         if env.config['exec_mode'] == 'master':
@@ -543,7 +562,7 @@ class Controller(threading.Thread):
         poller = zmq.Poller()
         poller.register(self.master_push_socket, zmq.POLLIN)
         poller.register(self.master_request_socket, zmq.POLLIN)
-        poller.register(self.substep_backend_socket, zmq.POLLIN)
+        poller.register(self.worker_backend_socket, zmq.POLLIN)
         if env.config['exec_mode'] == 'master':
             poller.register(self.tapping_logging_socket, zmq.POLLIN)
             poller.register(self.tapping_listener_socket, zmq.POLLIN)
@@ -571,11 +590,11 @@ class Controller(threading.Thread):
                     if not self.handle_master_request_msg(self.master_request_socket.recv_pyobj()):
                         break
 
-                if self.substep_backend_socket in socks:
+                if self.worker_backend_socket in socks:
                     while True:
-                        if self.substep_backend_socket.poll(0):
-                            self.handle_substep_backend_msg(
-                                self.substep_backend_socket.recv_pyobj())
+                        if self.worker_backend_socket.poll(0):
+                            self.handle_worker_backend_msg(
+                                self.worker_backend_socket.recv_pyobj())
                         else:
                             break
 
@@ -619,7 +638,7 @@ class Controller(threading.Thread):
 
             poller.unregister(self.master_push_socket)
             poller.unregister(self.master_request_socket)
-            poller.unregister(self.substep_backend_socket)
+            poller.unregister(self.worker_backend_socket)
             if env.config['exec_mode'] == 'master':
                 poller.unregister(self.tapping_logging_socket)
                 poller.unregister(self.tapping_listener_socket)
@@ -628,7 +647,7 @@ class Controller(threading.Thread):
 
             close_socket(self.master_push_socket, now=True)
             close_socket(self.master_request_socket, now=True)
-            close_socket(self.substep_backend_socket, now=True)
+            close_socket(self.worker_backend_socket, now=True)
 
             if env.config['exec_mode'] == 'master':
                 close_socket(self.tapping_logging_socket, now=True)
