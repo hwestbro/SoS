@@ -77,7 +77,7 @@ class dummy_node:
 
 
 class ProcInfo(object):
-    def __init__(self,  socket, port, step: Union[SoS_Node, dummy_node]) -> None:
+    def __init__(self, socket, port, step) -> None:
         self.socket = socket
         self.port = port
         self.step = step
@@ -85,9 +85,6 @@ class ProcInfo(object):
 
     def set_status(self, status: str) -> None:
         self.step._status = status
-
-    def is_alive(self):
-        return True
 
     def in_status(self, status: str) -> bool:
         return self.step._status == status
@@ -101,46 +98,26 @@ class ProcInfo(object):
 
 class ExecutionManager(object):
     # this class managers workers and their status ...
-    def __init__(self, max_workers: int, config: dict={}, args=None) -> None:
-                #
-        # running processes. It consisists of
-        #
-        # [ [proc, queue], socket, node]
-        #
-        # where:
-        #   proc, queue: process, which is None for the nested workflow.
-        #   socket: socket to get information from workers
-        #   node: node that is being executed, which is a dummy node
-        #       created on the fly for steps passed from nested workflow
-        #
+    def __init__(self) -> None:
         self.procs = []
-
-        # process pool that is used to pool temporarily unused processed.
         self.pool = []
-        self.max_workers = max_workers
-
         # steps sent and queued from the nested workflow
         # they will be executed in random but at a higher priority than the steps
         # on the master process.
         self.step_queue = {}
-
-        self.config = config
-
-        self.args = args
-
         self.worker_reply_socket = create_socket(env.zmq_context, zmq.REP, 'worker reply')
         self.worker_reply_socket.connect(
             f'tcp://127.0.0.1:{env.config["sockets"]["executor_request"]}')
 
     def add_placeholder_worker(self, runnable, socket):
         runnable._status = 'step_pending'
-        self.procs.append(ProcInfo(socket=socket, port=None, step=runnable))
+        self.procs.append(ProcInfo(socket=socket, step=runnable))
 
     def push_to_queue(self, runnable, spec):
         self.step_queue[runnable] = spec
 
     def send_to_worker(self):
-        env.logger.error('sendt to worker')
+        # if all workers are busy, wait 100
         if not self.worker_reply_socket.poll(100):
             return False
         master_port = self.worker_reply_socket.recv_pyobj()
@@ -152,20 +129,21 @@ class ExecutionManager(object):
         # spec is already pickled to "freeze" them
         self.worker_reply_socket.send(spec)
 
-        master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
-        master_socket.connect(f'tcp://127.0.0.1:{master_port}')
-        # we need to create a separaate ProcInfo to keep track of the step
-        self.procs.append(ProcInfo(socket=master_socket, port=master_port, step=runnable))
+        # if there is a pooled proc with the same port, let us use it to avoid re-creating a socket
+        proc_with_port = [idx for idx,proc in enumerate(self.pool) if proc.port == master_port]
+        if proc_with_port:
+            self.procs.append(self.pool[proc_with_port[0]])
+            self.pool.pop(proc_with_port[0])
+            self.procs[-1].step = runnable
+        else:
+            master_socket = create_socket(env.zmq_context, zmq.PAIR, 'pair socket for step worker')
+            master_socket.connect(f'tcp://127.0.0.1:{master_port}')
+            # we need to create a ProcInfo to keep track of the step
+            self.procs.append(ProcInfo(socket=master_socket, port=master_port, step=runnable))
         return True
-
-    def num_active(self) -> int:
-        return len([x for x in self.procs if x])
 
     def all_done(self) -> bool:
         return not self.procs or all(x is None for x in self.procs)
-
-    # def all_failed(self) -> bool:
-    #     return all(x.in_status('failed') for x in self.procs)
 
     def dispose(self, idx: int) -> None:
         close_socket(self.procs[idx].socket)
@@ -179,7 +157,8 @@ class ExecutionManager(object):
         self.procs = [x for x in self.procs if x is not None]
 
     def terminate(self) -> None:
-        self.cleanup()
+        for proc in self.procs + self.pool:
+            close_socket(proc.socket)
         close_socket(self.worker_reply_socket)
 
 
@@ -1006,7 +985,7 @@ class Base_Executor:
                 raise RuntimeError(f'No step to generate target {targets}')
 
         # manager of processes
-        manager = ExecutionManager(env.config['max_procs'], config=env.config, args=self.args)
+        manager = ExecutionManager()
         #
         try:
             exec_error = ExecuteError(self.workflow.name)
@@ -1018,11 +997,7 @@ class Base_Executor:
 
                     # echck if there is any message from the socket
                     if not proc.socket.poll(0):
-                        if proc.is_alive():
-                            continue
-                        else:
-                            raise RuntimeError('A worker has been killed. Quitting.')
-
+                        continue
 
                     # receieve something from the worker
                     res = proc.socket.recv_pyobj(zmq.NOBLOCK)
@@ -1166,11 +1141,8 @@ class Base_Executor:
                         raise RuntimeError(
                             f'Unexpected value from step {short_repr(res)}')
 
-                    # when a worker receives a result, it should be ready, namely a READY message is on
-                    # the way, but a fair share policy means that it will be processed next time. However,
-                    # when the next step is being processed, this will prevent it from using this worker.
-                    # using mark_idle here will fix this, but the pool socket will have to be cleared
-                    # before use.
+                    # when a worker receives a result, it should be done so the socket should no longer
+                    # be used... until the next time the worker use the same socket for another step
                     manager.mark_idle(idx)
 
                     env.logger.debug(
