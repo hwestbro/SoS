@@ -133,7 +133,7 @@ class SoS_Worker(mp.Process):
             port = env.master_socket.bind_to_random_port('tcp://127.0.0.1')
             self._master_sockets.append(env.master_socket)
             self._master_ports.append(port)
-            env.logger.warning(f'WORKER {self.name} ({os.getpid()}) creates ports {self._master_ports}')
+            env.logger.trace(f'WORKER {self.name} ({os.getpid()}) creates ports {self._master_ports}')
 
     def pop_env(self):
         self._stack_idx -= 1
@@ -148,13 +148,13 @@ class SoS_Worker(mp.Process):
         if work is None:
             if self._stack_idx != 0:
                 env.logger.error(f'WORKER terminates with pending tasks. sos might not be termianting properly.')
-            env.logger.error(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
+            env.logger.trace(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
 
-        env.logger.error(
+        env.logger.trace(
             f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if 'task' in work:
@@ -189,7 +189,7 @@ class SoS_Worker(mp.Process):
                     self.pop_env()
         except StopIteration as e:
             pass
-        env.logger.error(
+        env.logger.trace(
             f'WORKER {self.name} completes request {short_repr(work)}')
         return True
 
@@ -303,8 +303,8 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        #return
-        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
+        return
+        env.logger.debug(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, msg_type, msg):
         self._n_requested += 1
