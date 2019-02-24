@@ -2253,7 +2253,7 @@ time.sleep(2)
         proc = psutil.Process(ret.pid)
         while True:
             children = proc.children(recursive=True)
-            if children > 0:
+            if children:
                 children[-1].kill()
                 break
             time.sleep(0.1)
