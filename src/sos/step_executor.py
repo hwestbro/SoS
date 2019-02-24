@@ -1393,7 +1393,6 @@ class Base_Step_Executor:
                     pass
                 env.sos_dict.pop('__concurrent_subworkflow__')
 
-
             runner = self.wait_for_results(all_submitted=True)
             try:
                 yreq = next(runner)

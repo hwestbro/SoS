@@ -4,6 +4,7 @@
 # Distributed under the terms of the 3-clause BSD License.
 
 import base64
+import copy
 import os
 import subprocess
 import sys
@@ -126,7 +127,8 @@ class ExecutionManager(object):
         self.poller.register(socket, zmq.POLLIN)
 
     def push_to_queue(self, runnable, spec):
-        self.step_queue[runnable] = spec
+        # try to avoid interference between tasks
+        self.step_queue[runnable] = copy.deepcopy(spec)
 
     def send_to_worker(self):
         if not self.step_queue:
@@ -140,7 +142,10 @@ class ExecutionManager(object):
 
         runnable, spec = self.step_queue.popitem()
 
-        send_message_to_controller([master_port, spec])
+        if 'sockets' not in spec['config']:
+            spec['config']['sockets'] = {}
+        spec['config']['sockets']['master_port'] = master_port
+        send_message_to_controller(['step' if 'section' in spec else 'workflow', spec])
 
         # if there is a pooled proc with the same port, let us use it to avoid re-creating a socket
         proc_with_port = [idx for idx,proc in enumerate(self.pool) if proc.port == master_port]
@@ -1120,7 +1125,8 @@ class Base_Executor:
                             runnable._child_socket.connect(f'tcp://127.0.0.1:{port}')
 
                             manager.push_to_queue(runnable,
-                                pickle.dumps(('step', section, context, shared, args, config, verbosity)))
+                                spec=dict(section=section, context=context, shared=shared,
+                                    args=self.args, config=config, verbosity=verbosity))
 
                         elif res[0] == 'workflow':
                             workflow_ids, wfs, targets, args, shared, config = res[1:]
@@ -1147,7 +1153,8 @@ class Base_Executor:
                                 wfrunnable._pending_workflows = [wid]
                                 #
                                 manager.push_to_queue(wfrunnable,
-                                    spec=pickle.dumps(('workflow', wid, wf, targets, args, shared, config)))
+                                    spec=dict(workflow_id=wid, wf=wf, targets=targets,
+                                        args=args, shared=shared, config=config))
                         else:
                             raise RuntimeError(
                                 f'Unexpected value from step {short_repr(res)}')
@@ -1283,8 +1290,8 @@ class Base_Executor:
                     env.logger.debug(
                         f'Master execute {section.md5} from DAG')
                     manager.push_to_queue(runnable,
-                        spec=pickle.dumps(('step', section, runnable._context, shared, self.args,
-                                          env.config, env.verbosity)))
+                        spec=dict(section=section, context=runnable._context, shared=shared,
+                            args=self.args, config=env.config, verbosity=env.verbosity))
 
                 while True:
                     # if steps from child nested workflow?

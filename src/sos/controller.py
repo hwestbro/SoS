@@ -231,11 +231,8 @@ class Controller(threading.Thread):
 
     def handle_master_push_msg(self, msg):
         try:
-            if msg[0] == 'substep':
+            if msg[0] in ('substep', 'step', 'workflow'):
                 # cache the request, route to first available worker
-                self.workers.add_request(None, msg[1])
-            elif isinstance(msg[0], int):
-                # step or workflow, the first number is port number, second is spec
                 self.workers.add_request(msg[0], msg[1])
             elif msg[0] == 'nprocs':
                 env.logger.trace(f'Active running process set to {msg[1]}')

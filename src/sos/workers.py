@@ -157,21 +157,19 @@ class SoS_Worker(mp.Process):
         env.logger.error(
             f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
-        if isinstance(work, int):
-            # if the step is using a port other than the current one, we will have to swap sockets
-            env.logger.error(f'WORKER using port {work}')
-            idx = env._master_sockets.index(work)
-            assert idx > self._stack_idx
-            # swap
+        if 'task' in work:
+            self.run_substep(work)
+            return True
+
+        master_port = work['config']['sockets']['master_port']
+        if master_port != self._master_ports[self._stack_idx]:
+            idx = self._master_ports.index(master_port)
             self._master_sockets[idx], self._master_sockets[self._stack_idx] = self._master_sockets[self._stack_idx], self._master_sockets[idx]
             self._master_ports[idx], self._master_ports[self._stack_idx] = self._master_ports[self._stack_idx], self._master_ports[idx]
             env.master_socket = self._master_sockets[self._stack_idx]
 
-        elif isinstance(work, dict):
-            self.run_substep(work)
-            return True
         # step and workflow can yield
-        runner = self.run_step(*work[1:]) if work[0] == 'step' else self.run_workflow(*work[1:])
+        runner = self.run_step(**work) if 'section' in work else self.run_workflow(**work)
         try:
             poller = next(runner)
             while True:
@@ -308,12 +306,13 @@ class WorkerManager(object):
         #return
         env.logger.warning(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
 
-    def add_request(self, port, msg):
+    def add_request(self, msg_type, msg):
         self._n_requested += 1
-        if port is None:
+        if msg_type == 'substep':
             self._substep_requests.insert(0, msg)
             self.report(f'Substep requested')
         else:
+            port = msg['config']['sockets']['master_port']
             self._step_requests[port] = msg
             self.report(f'Step {port} requested')
 
@@ -340,11 +339,7 @@ class WorkerManager(object):
         if any(port in self._step_requests for port in ports):
             # if the port is available
             port = [x for x in ports if x in self._step_requests][0]
-            if ports.index(port) > 1:
-                # set port
-                self.report(f'Forcing use of {port}')
-                self._worker_backend_socket.send(port)
-            self._worker_backend_socket.send(self._step_requests.pop(port))
+            self._worker_backend_socket.send_pyobj(self._step_requests.pop(port))
             self._last_avail_time = time.time()
             self._n_processed += 1
             self.report(f'Step {port} processed')
