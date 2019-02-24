@@ -164,18 +164,18 @@ class SoS_Worker(mp.Process):
         if work is None:
             if self._stack_idx != 0:
                 env.logger.error(f'WORKER terminates with pending tasks. sos might not be termianting properly.')
-            env.logger.error(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
+            env.logger.trace(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
 
-        env.logger.error(
+        env.logger.trace(
             f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives {self._type_of_work(work)} request {self._name_of_work(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if 'task' in work:
             self.run_substep(work)
-            env.logger.error(
+            env.logger.trace(
                 f'WORKER {self.name} ({os.getpid()}) completes substep {self._name_of_work(work)}')
             return True
 
@@ -207,7 +207,7 @@ class SoS_Worker(mp.Process):
                     self.pop_env()
         except StopIteration as e:
             pass
-        env.logger.error(
+        env.logger.trace(
             f'WORKER {self.name} ({os.getpid()}) completes request {self._type_of_work(work)} request {self._name_of_work(work)}')
         return True
 
@@ -324,8 +324,8 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        ##return
-        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers (of which {len(self._blocking_ports)} is blocking), {self._n_requested} requested, {self._n_processed} processed')
+        return
+        env.logger.trace(f'{msg.upper()}: {self._num_workers} workers (of which {len(self._blocking_ports)} is blocking), {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, msg_type, msg):
         self._n_requested += 1
@@ -366,7 +366,7 @@ class WorkerManager(object):
             self._claimed_ports.add(port)
             self._max_workers += 1
             self._blocking_ports.add(port)
-            env.logger.error(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
+            env.logger.debug(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
             return port
 
     def process_request(self, level, ports, request_blocking=False):
@@ -390,7 +390,7 @@ class WorkerManager(object):
         elif any(port in self._blocking_ports for port in ports):
             # in block list but appear to be idle, kill it
             self._max_workers -= 1
-            env.logger.error(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
+            env.logger.debug(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
             for port in ports:
                 if port in self._blocking_ports:
                     self._blocking_ports.remove(port)
