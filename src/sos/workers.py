@@ -133,6 +133,7 @@ class SoS_Worker(mp.Process):
             port = env.master_socket.bind_to_random_port('tcp://127.0.0.1')
             self._master_sockets.append(env.master_socket)
             self._master_ports.append(port)
+            env.logger.warning(f'WORKER {self.name} ({os.getpid()}) creates ports {self._master_ports}')
 
     def pop_env(self):
         self._stack_idx -= 1
@@ -146,15 +147,15 @@ class SoS_Worker(mp.Process):
 
         if work is None:
             if self._stack_idx != 0:
-                env.logger.error(f'Worker terminates with pending tasks. sos might not be termianting properly.')
-            env.logger.trace(f'Worker {self.name} ({os.getpid()}) quits after receiving None.')
+                env.logger.error(f'WORKER terminates with pending tasks. sos might not be termianting properly.')
+            env.logger.error(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
 
-        env.logger.trace(
-            f'Worker {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
+        env.logger.error(
+            f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if isinstance(work, dict):
             self.run_substep(work)
@@ -180,8 +181,8 @@ class SoS_Worker(mp.Process):
                     self.pop_env()
         except StopIteration as e:
             pass
-        env.logger.debug(
-            f'Worker {self.name} completes request {short_repr(work)}')
+        env.logger.error(
+            f'WORKER {self.name} completes request {short_repr(work)}')
         return True
 
     def run_workflow(self, workflow_id, wf, targets, args, shared, config):
@@ -294,16 +295,17 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        return
-        env.logger.warning(f'{msg}: workers: {self._num_workers}, requested: {self._n_requested}, processed: {self._n_processed}')
+        #return
+        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, port, msg):
+        self._n_requested += 1
         if port is None:
             self._substep_requests.insert(0, msg)
+            self.report(f'Substep requested')
         else:
             self._step_requests[port] = msg
-        self._n_requested += 1
-        self.report(f'add_request')
+            self.report(f'Step {port} requested')
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers
@@ -330,7 +332,7 @@ class WorkerManager(object):
             self._worker_backend_socket.send(self._step_requests.pop(port))
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report(f'process step/workflow with port {port}')
+            self.report(f'Step {port} processed')
             # port should be in claimed ports
             self._claimed_ports.remove(port)
         elif port in self._claimed_ports:
@@ -343,7 +345,7 @@ class WorkerManager(object):
             self._worker_backend_socket.send_pyobj(msg)
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report('process substep with port {port}')
+            self.report(f'Substep processed with {port}')
             # port can however be in available ports
             if port in self._available_ports:
                 self._available_ports.remove(port)
@@ -385,12 +387,12 @@ class WorkerManager(object):
                 self._available_ports.remove(port)
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
-            self.report('kill a long standing workers')
+            self.report(f'Kill standing {port}')
 
     def kill_all(self):
         '''Kill all workers'''
         while self._num_workers > 0 and self._worker_backend_socket.poll(1000):
-            self._worker_backend_socket.recv_pyobj()
+            port, _ = self._worker_backend_socket.recv_pyobj()
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
-            self.report('kill a done worker')
+            self.report('Kill {port}')
