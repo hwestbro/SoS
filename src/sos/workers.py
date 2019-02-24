@@ -145,14 +145,16 @@ class SoS_Worker(mp.Process):
         work = env.ctrl_socket.recv_pyobj()
 
         if work is None:
-            env.logger.trace(f'Worker {self.name} ({os.getpid()}) quits after receiving None.')
+            if self._stack_idx != 0:
+                env.logger.error(f'Worker terminates with pending tasks. sos might not be termianting properly.')
+            env.logger.error(f'Worker {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
 
         env.logger.trace(
-            f'Worker {self.name} ({os.getpid()}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
+            f'Worker {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if isinstance(work, dict):
             self.run_substep(work)

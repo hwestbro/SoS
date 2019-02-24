@@ -115,6 +115,7 @@ class ExecutionManager(object):
         self._dummy = dummy
 
     def report(self):
+        return
         env.logger.warning(('Nested: ' if self._dummy else 'Master: ') + ', '.join(
             f'{proc.step} {proc.step._status}' for proc in self.procs if proc is not None
         ))
