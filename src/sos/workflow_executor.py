@@ -111,13 +111,12 @@ class ExecutionManager(object):
         # steps sent and queued from the nested workflow
         # they will be executed in random but at a higher priority than the steps
         # on the master process.
-        self.step_queue = {}
+        self.step_queue = []
         self.poller = zmq.Poller() if dummy else None
         self._dummy = dummy
 
     def report(self):
-        return
-        env.logger.debug(('NESTED: ' if self._dummy else 'MASTER: ') + ', '.join(
+        env.logger.error(('NESTED: ' if self._dummy else 'MASTER: ') + ', '.join(
             f'{proc.step} {proc.step._status}' for proc in self.procs if proc is not None
         ))
 
@@ -128,19 +127,23 @@ class ExecutionManager(object):
 
     def push_to_queue(self, runnable, spec):
         # try to avoid interference between tasks
-        self.step_queue[runnable] = copy.deepcopy(spec)
+        self.step_queue.append([runnable, copy.deepcopy(spec)])
+
+    def _is_next_job_blocking(self):
+        return 'blocking' in self.step_queue[-1][1] and self.step_queue[-1][1]['blocking']
 
     def send_to_worker(self):
         if not self.step_queue:
             return False
 
-        # if all workers are busy, wait 100
-        master_port = request_answer_from_controller(['worker_available'])
+        # ask the controller for a worker. If the next job is blocking, we
+        # ask for a separate blocking.
+        master_port = request_answer_from_controller(['worker_available', self._is_next_job_blocking()])
         # no worker is available
         if master_port is None:
             return False
 
-        runnable, spec = self.step_queue.popitem()
+        runnable, spec = self.step_queue.pop()
         if 'sockets' not in spec['config']:
             spec['config']['sockets'] = {}
         spec['config']['sockets']['master_port'] = master_port

@@ -325,7 +325,7 @@ class WorkerManager(object):
 
     def report(self, msg):
         ##return
-        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers, {len(self._blocking_ports)} blocking, {self._n_requested} requested, {self._n_processed} processed')
+        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers (of which {len(self._blocking_ports)} is blocking), {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, msg_type, msg):
         self._n_requested += 1
@@ -337,30 +337,39 @@ class WorkerManager(object):
             self._step_requests[port] = msg
             self.report(f'Step {port} requested')
 
-        # a blocking nested workflow will not yeild, so we will have to create a separate process for it
-        # to prevent it from using a workers.
-        blocking = 'blocking' in msg and msg['blocking']
-        if blocking:
-            self._max_workers += 1
-            self._blocking_ports.add(port)
-            env.logger.error(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
-
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers
-        if blocking or (self._n_processed > 0 and not self._available_ports and self._num_workers < self._max_workers):
+        if self._n_processed > 0 and not self._available_ports and self._num_workers < self._max_workers:
             self.start()
 
-    def worker_available(self):
+    def worker_available(self, blocking):
         if self._available_ports:
             claimed = self._available_ports.pop()
             self._claimed_ports.add(claimed)
             return claimed
-        # no available port, can we start a new worker?
-        if self._num_workers < self._max_workers:
-            self.start()
-        return None
 
-    def process_request(self, level, ports):
+        if not blocking:
+            # no available port, can we start a new worker?
+            if self._num_workers < self._max_workers:
+                self.start()
+            return None
+
+        # we start a worker right now.
+        self.start()
+        while True:
+            if not self._worker_backend_socket.poll(5000):
+                raise RuntimeError('No worker is started after 5 seconds')
+            msg = self._worker_backend_socket.recv_pyobj()
+            port = self.process_request(msg[0], msg[1:], request_blocking=True)
+            if port is None:
+                continue
+            self._claimed_ports.add(port)
+            self._max_workers += 1
+            self._blocking_ports.add(port)
+            env.logger.error(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
+            return port
+
+    def process_request(self, level, ports, request_blocking=False):
         '''port is the open port at the worker, level is the level of stack.
         A non-zero level means that the worker is pending on something while
         looking for new job, so the worker should not be killed.
@@ -378,6 +387,16 @@ class WorkerManager(object):
             # the port is claimed, but the real message is not yet available
             self._worker_backend_socket.send_pyobj({})
             self.report(f'pending with claimed {ports}')
+        elif any(port in self._blocking_ports for port in ports):
+            # in block list but appear to be idle, kill it
+            self._max_workers -= 1
+            env.logger.error(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
+            for port in ports:
+                if port in self._blocking_ports:
+                    self._blocking_ports.remove(port)
+            self._worker_backend_socket.send_pyobj(None)
+            self._num_workers -= 1
+            self.report(f'Blocking worker {ports} killed')
         elif self._substep_requests:
             # port is not claimed, free to use for substep worker
             msg = self._substep_requests.pop()
@@ -389,13 +408,10 @@ class WorkerManager(object):
             for port in ports:
                 if port in self._available_ports:
                     self._available_ports.remove(port)
+        elif request_blocking:
+            self._worker_backend_socket.send_pyobj({})
+            return ports[0]
         else:
-            if any(port in self._blocking_ports for port in ports):
-                self._max_workers -= 1
-                env.logger.error(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
-                for port in ports:
-                    if port in self._blocking_ports:
-                        self._blocking_ports.remove(port)
             # the port will be available for others to use
             self._available_ports.add(ports[0])
             self._worker_backend_socket.send_pyobj({})
