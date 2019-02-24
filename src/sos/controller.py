@@ -451,7 +451,15 @@ class Controller(threading.Thread):
 
         try:
             while True:
-                socks = dict(poller.poll())
+
+                while True:
+                    socks = dict(poller.poll(1000))
+                    if socks:
+                        break
+                    # if the last worker has been pending for more than 5
+                    # seconds, kill it. It is also possible that some others are killed
+                    # by external process.
+                    self.workers.check_workers()
 
                 if self.master_push_socket in socks:
                     while True:
@@ -486,10 +494,7 @@ class Controller(threading.Thread):
                         self.handle_tapping_controller_msg(
                             self.tapping_controller_socket.recv_pyobj())
 
-                # if the last worker has been pending for more than 5
-                # seconds, kill it. It is also possible that some others are killed
-                # by external process.
-                self.workers.check_workers()
+
 
                 # if monitor_socket in socks:
                 #     evt = recv_monitor_message(monitor_socket)
