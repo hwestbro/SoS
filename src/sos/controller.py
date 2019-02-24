@@ -356,7 +356,7 @@ class Controller(threading.Thread):
 
     def handle_worker_backend_msg(self, msg):
         # msg should be a port number from the worker
-        self.workers.process_request(msg[0], msg[1])
+        self.workers.process_request(msg[0], msg[1:])
 
     def handle_tapping_logging_msg(self, msg):
         if env.config['exec_mode'] == 'both':

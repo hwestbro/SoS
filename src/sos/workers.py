@@ -141,8 +141,8 @@ class SoS_Worker(mp.Process):
         env.master_socket = self._master_sockets[self._stack_idx]
 
     def _process_job(self):
-        # send the current socket number as a way to notify the availability of worker
-        env.ctrl_socket.send_pyobj([self._master_ports[self._stack_idx], self._stack_idx])
+        # send all the available sockets...
+        env.ctrl_socket.send_pyobj([self._stack_idx] + self._master_ports[self._stack_idx:])
         work = env.ctrl_socket.recv_pyobj()
 
         if work is None:
@@ -157,7 +157,17 @@ class SoS_Worker(mp.Process):
         env.logger.error(
             f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
 
-        if isinstance(work, dict):
+        if isinstance(work, int):
+            # if the step is using a port other than the current one, we will have to swap sockets
+            env.logger.error(f'WORKER using port {work}')
+            idx = env._master_sockets.index(work)
+            assert idx > self._stack_idx
+            # swap
+            self._master_sockets[idx], self._master_sockets[self._stack_idx] = self._master_sockets[self._stack_idx], self._master_sockets[idx]
+            self._master_ports[idx], self._master_ports[self._stack_idx] = self._master_ports[self._stack_idx], self._master_ports[idx]
+            env.master_socket = self._master_sockets[self._stack_idx]
+
+        elif isinstance(work, dict):
             self.run_substep(work)
             return True
         # step and workflow can yield
@@ -322,20 +332,25 @@ class WorkerManager(object):
             self.start()
         return None
 
-    def process_request(self, port, level):
+    def process_request(self, level, ports):
         '''port is the open port at the worker, level is the level of stack.
         A non-zero level means that the worker is pending on something while
         looking for new job, so the worker should not be killed.
         '''
-        if port in self._step_requests:
+        if any(port in self._step_requests for port in ports):
             # if the port is available
+            port = [x for x in ports if x in self._step_requests][0]
+            if ports.index(port) > 1:
+                # set port
+                self.report(f'Forcing use of {port}')
+                self._worker_backend_socket.send(port)
             self._worker_backend_socket.send(self._step_requests.pop(port))
             self._last_avail_time = time.time()
             self._n_processed += 1
             self.report(f'Step {port} processed')
             # port should be in claimed ports
             self._claimed_ports.remove(port)
-        elif port in self._claimed_ports:
+        elif any(port in self._claimed_ports for port in ports):
             # the port is claimed, but the real message is not yet available
             self._worker_backend_socket.send_pyobj({})
             # self.report(f'pending with claimed {port}')
@@ -345,13 +360,14 @@ class WorkerManager(object):
             self._worker_backend_socket.send_pyobj(msg)
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report(f'Substep processed with {port}')
+            self.report(f'Substep processed with {msg}')
             # port can however be in available ports
-            if port in self._available_ports:
-                self._available_ports.remove(port)
+            for port in ports:
+                if port in self._available_ports:
+                    self._available_ports.remove(port)
         else:
             # the port will be available for others to use
-            self._available_ports.add(port)
+            self._available_ports.add(ports[0])
             self._worker_backend_socket.send_pyobj({})
             # self.report(f'pending with port {port}')
 
@@ -379,20 +395,21 @@ class WorkerManager(object):
             attempts -= 1
             if not self._worker_backend_socket.poll(100):
                 continue
-            port, level = self._worker_backend_socket.recv_pyobj()
-            if port in self._claimed_ports or level > 0:
+            msg = self._worker_backend_socket.recv_pyobj()
+            if any(port in self._claimed_ports for port in msg[1:]) or msg[0] > 0:
                 self._worker_backend_socket.send_pyobj({})
                 continue
-            if port in self._available_ports:
-                self._available_ports.remove(port)
+            for port in msg[1:]:
+                if port in self._available_ports:
+                    self._available_ports.remove(port)
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
-            self.report(f'Kill standing {port}')
+            self.report(f'Kill standing {msg[1:]}')
 
     def kill_all(self):
         '''Kill all workers'''
         while self._num_workers > 0 and self._worker_backend_socket.poll(1000):
-            port, _ = self._worker_backend_socket.recv_pyobj()
+            msg = self._worker_backend_socket.recv_pyobj()
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
-            self.report('Kill {port}')
+            self.report('Kill {msg[1:]}')
