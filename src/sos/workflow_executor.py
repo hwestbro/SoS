@@ -141,7 +141,6 @@ class ExecutionManager(object):
             return False
 
         runnable, spec = self.step_queue.popitem()
-
         if 'sockets' not in spec['config']:
             spec['config']['sockets'] = {}
         spec['config']['sockets']['master_port'] = master_port
@@ -1126,7 +1125,7 @@ class Base_Executor:
 
                             manager.push_to_queue(runnable,
                                 spec=dict(section=section, context=context, shared=shared,
-                                    args=self.args, config=config, verbosity=verbosity))
+                                    args=args, config=config, verbosity=verbosity))
 
                         elif res[0] == 'workflow':
                             workflow_ids, wfs, targets, args, shared, config = res[1:]
