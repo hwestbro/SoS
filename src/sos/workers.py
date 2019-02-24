@@ -296,6 +296,9 @@ class WorkerManager(object):
 
         self._worker_backend_socket = backend_socket
 
+        # ports of workers working for blocking workflow
+        self._blocking_ports = set()
+
         self._available_ports = set()
         self._claimed_ports = set()
 
@@ -320,7 +323,8 @@ class WorkerManager(object):
         # to prevent it from using a workers.
         if 'blocking' in msg and msg['blocking']:
             self._max_workers += 1
-            env.logger.warning(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
+            self._blocking_ports.add(port)
+            env.logger.debug(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers
@@ -367,6 +371,12 @@ class WorkerManager(object):
                 if port in self._available_ports:
                     self._available_ports.remove(port)
         else:
+            if any(port in self._blocking_ports for port in ports):
+                self._max_workers -= 1
+                env.logger.debug(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
+                for port in ports:
+                    if port in self._blocking_ports:
+                        self._blocking_ports.remove(port)
             # the port will be available for others to use
             self._available_ports.add(ports[0])
             self._worker_backend_socket.send_pyobj({})
