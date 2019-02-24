@@ -394,6 +394,8 @@ class WorkerManager(object):
             for port in ports:
                 if port in self._blocking_ports:
                     self._blocking_ports.remove(port)
+                if port in self._available_ports:
+                    self._available_ports.remove(port)
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
             self.report(f'Blocking worker {ports} killed')
