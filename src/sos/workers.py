@@ -141,7 +141,7 @@ class SoS_Worker(mp.Process):
 
     def _process_job(self):
         # send the current socket number as a way to notify the availability of worker
-        env.ctrl_socket.send_pyobj(self._master_ports[self._stack_idx])
+        env.ctrl_socket.send_pyobj([self._master_ports[self._stack_idx], self._stack_idx])
         work = env.ctrl_socket.recv_pyobj()
 
         if work is None:
@@ -320,7 +320,11 @@ class WorkerManager(object):
             self.start()
         return None
 
-    def process_request(self, port):
+    def process_request(self, port, level):
+        '''port is the open port at the worker, level is the level of stack.
+        A non-zero level means that the worker is pending on something while
+        looking for new job, so the worker should not be killed.
+        '''
         if port in self._step_requests:
             # if the port is available
             self._worker_backend_socket.send(self._step_requests.pop(port))
@@ -368,9 +372,13 @@ class WorkerManager(object):
         if time.time() - self._last_avail_time < 5:
             return
         # we keep at least one worker
-        while self._num_workers > 1 and self._worker_backend_socket.poll(100):
-            port = self._worker_backend_socket.recv_pyobj()
-            if port in self._claimed_ports:
+        attempts = self._num_workers - 1
+        while attempts > 0:
+            attempts -= 1
+            if not self._worker_backend_socket.poll(100):
+                continue
+            port, level = self._worker_backend_socket.recv_pyobj()
+            if port in self._claimed_ports or level > 0:
                 self._worker_backend_socket.send_pyobj({})
                 continue
             if port in self._available_ports:
