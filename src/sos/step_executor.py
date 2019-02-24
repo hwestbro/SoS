@@ -544,7 +544,14 @@ class Base_Step_Executor:
         # this is a generator function because wait_for_tasks is a generator
         # function and needs to yield to the caller
         if self.concurrent_substep:
-            self.wait_for_substep()
+            try:
+                runner = self.wait_for_substep()
+                yreq = next(runner)
+                while True:
+                    yres = yield yreq
+                    yreq = runner.send(yres)
+            except StopIteration as e:
+                pass
 
         if self.task_manager is None:
             return {}
@@ -683,6 +690,7 @@ class Base_Step_Executor:
                     return
             elif self._completed_concurrent_substeps == till:
                 return
+            yield self.result_pull_socket
             res = self.result_pull_socket.recv_pyobj()
             if 'exception' in res and isinstance(res['exception'], ProcessKilled):
                 raise res['exception']
@@ -704,8 +712,16 @@ class Base_Step_Executor:
 
     def wait_for_substep(self):
         while self._completed_concurrent_substeps < len(self.proc_results):
-            self.process_returned_substep_result(till=len(self.proc_results),
-                wait=True)
+            try:
+                runner = self.process_returned_substep_result(till=len(self.proc_results),
+                    wait=True)
+                yreq = next(runner)
+                while True:
+                    yres = yield yreq
+                    yreq = runner.send(yres)
+            except StopIteration:
+                pass
+
 
     def collect_result(self):
         # only results will be sent back to the master process
