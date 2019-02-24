@@ -193,7 +193,7 @@ class SoS_Worker(mp.Process):
             f'WORKER {self.name} completes request {short_repr(work)}')
         return True
 
-    def run_workflow(self, workflow_id, wf, targets, args, shared, config):
+    def run_workflow(self, workflow_id, wf, targets, args, shared, config, **kwargs):
         #
         #
         # get workflow, args, shared, and config
@@ -303,7 +303,7 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        return
+        #return
         env.logger.debug(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, msg_type, msg):
@@ -315,6 +315,12 @@ class WorkerManager(object):
             port = msg['config']['sockets']['master_port']
             self._step_requests[port] = msg
             self.report(f'Step {port} requested')
+
+        # a blocking nested workflow will not yeild, so we will have to create a separate process for it
+        # to prevent it from using a workers.
+        if 'blocking' in msg and msg['blocking']:
+            self._max_workers += 1
+            env.logger.warning(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers

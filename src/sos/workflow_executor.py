@@ -1128,7 +1128,7 @@ class Base_Executor:
                                     args=args, config=config, verbosity=verbosity))
 
                         elif res[0] == 'workflow':
-                            workflow_ids, wfs, targets, args, shared, config = res[1:]
+                            workflow_ids, wfs, targets, args, shared, config, blocking = res[1:]
                             # receive the real definition
                             env.logger.debug(
                                 f'Master receives workflow request {workflow_ids}')
@@ -1153,7 +1153,8 @@ class Base_Executor:
                                 #
                                 manager.push_to_queue(wfrunnable,
                                     spec=dict(workflow_id=wid, wf=wf, targets=targets,
-                                        args=args, shared=shared, config=config))
+                                        args=args, shared=shared, config=config,
+                                        blocking=blocking))
                         else:
                             raise RuntimeError(
                                 f'Unexpected value from step {short_repr(res)}')

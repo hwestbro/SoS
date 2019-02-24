@@ -544,12 +544,12 @@ def sos_run(workflow=None, targets=None, shared=None, args=None, source=None, **
             x: (env.sos_dict[x] if x in env.sos_dict else None) for x in shared}
 
         wf_ids = [str(uuid.uuid4()) for wf in wfs]
-        env.__socket__.send_pyobj(['workflow', wf_ids, wfs, targets, args, shared, env.config])
 
-        if env.sos_dict.get('__concurrent_subworkflow__', False):
+        blocking = not env.sos_dict.get('__concurrent_subworkflow__', False)
+        env.__socket__.send_pyobj(['workflow', wf_ids, wfs, targets, args, shared, env.config, blocking])
+
+        if not blocking:
             return {'pending_workflows': wf_ids}
-        else:
-            env.logger.warning(f'Running nested workflow {", ".join(workflows)} in the middle of a step might lead to a deadlock and should be avoided.')
         res = {}
         for wf in wfs:
             wf_res = env.__socket__.recv_pyobj()
