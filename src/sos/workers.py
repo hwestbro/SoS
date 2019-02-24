@@ -147,7 +147,7 @@ class SoS_Worker(mp.Process):
         if work is None:
             if self._stack_idx != 0:
                 env.logger.error(f'Worker terminates with pending tasks. sos might not be termianting properly.')
-            env.logger.error(f'Worker {self.name} ({os.getpid()}) quits after receiving None.')
+            env.logger.trace(f'Worker {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
@@ -294,7 +294,7 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        #return
+        return
         env.logger.warning(f'{msg}: workers: {self._num_workers}, requested: {self._n_requested}, processed: {self._n_processed}')
 
     def add_request(self, port, msg):
