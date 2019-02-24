@@ -355,7 +355,7 @@ class WorkerManager(object):
             self._worker_backend_socket.send_pyobj(msg)
             self._last_avail_time = time.time()
             self._n_processed += 1
-            self.report(f'Substep processed with {msg}')
+            self.report(f'Substep processed with {ports[0]}')
             # port can however be in available ports
             for port in ports:
                 if port in self._available_ports:
