@@ -535,6 +535,11 @@ class Base_Step_Executor:
         yield None
         return {}
 
+    def wait_for_subworkflows(self, workflow_results):
+        yield None
+        raise RuntimeError('Subworkflow is not supported in interactive mode')
+        return {}
+
     def wait_for_results(self, all_submitted):
         # this is a generator function because wait_for_tasks is a generator
         # function and needs to yield to the caller
@@ -1378,18 +1383,16 @@ class Base_Step_Executor:
                 # endfor loop for each input group
                 #
             if self._subworkflow_results:
-                wf_ids = sum([x['pending_workflows'] for x in self._subworkflow_results], [])
-                for wf_id in wf_ids:
-                    # here we did not check if workflow ids match
-                    yield env.__socket__
-                    res = env.__socket__.recv_pyobj()
-                    if res is None:
-                        sys.exit(0)
-                    elif isinstance(res, Exception):
-                        raise res
+                try:
+                    runner = self.wait_for_subworkflows(self._subworkflow_results)
+                    yreq = next(runner)
+                    while True:
+                        yres = yield yreq
+                        yreq = runner.send(yres)
+                except StopIteration:
+                    pass
                 env.sos_dict.pop('__concurrent_subworkflow__')
-                # otherwise there should be nothing interesting in subworkflow
-                # return value (shared is not handled)
+
 
             runner = self.wait_for_results(all_submitted=True)
             try:
@@ -1535,6 +1538,18 @@ class Step_Executor(Base_Step_Executor):
             if len(results) == len(tasks):
                 break
         return results
+
+    def wait_for_subworkflows(self, workflow_results):
+        '''Wait for results from subworkflows'''
+        wf_ids = sum([x['pending_workflows'] for x in workflow_results], [])
+        for wf_id in wf_ids:
+            # here we did not check if workflow ids match
+            yield self.socket
+            res = self.socket.recv_pyobj()
+            if res is None:
+                sys.exit(0)
+            elif isinstance(res, Exception):
+                raise res
 
     def handle_unknown_target(self, e):
         self.socket.send_pyobj(['missing_target', e.target])
