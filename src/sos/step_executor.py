@@ -969,8 +969,8 @@ class Base_Step_Executor:
 
         if any('sos_run' in x[1] for x in self.step.statements[input_statement_idx:]) and \
             'shared' not in self.step.options and not self.step.task and \
-            len([x for x in self.step.statements[input_statement_idx:] if x[0] == '!']) == 1 and \
             self.step.statements[-1][0] == '!' and \
+            (len(self.step.statements) == 1 or self.step.statements[-2][0] == ':') and \
             is_sos_run_the_only_last_stmt(self.step.statements[-1][1]):
             env.sos_dict.set('__concurrent_subworkflow__', True)
 
