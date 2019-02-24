@@ -140,6 +140,22 @@ class SoS_Worker(mp.Process):
         env.switch(self._stack_idx)
         env.master_socket = self._master_sockets[self._stack_idx]
 
+    def _type_of_work(self, work):
+        if 'section' in work:
+            return 'step'
+        elif 'wf' in work:
+            return 'workflow'
+        else:
+            return 'substep'
+
+    def _name_of_work(self, work):
+        if 'section' in work:
+            return work['section'].step_name()
+        elif 'wf' in work:
+            return work['workflow_id']
+        else:
+            return 'substep'
+
     def _process_job(self):
         # send all the available sockets...
         env.ctrl_socket.send_pyobj([self._stack_idx] + self._master_ports[self._stack_idx:])
@@ -148,17 +164,19 @@ class SoS_Worker(mp.Process):
         if work is None:
             if self._stack_idx != 0:
                 env.logger.error(f'WORKER terminates with pending tasks. sos might not be termianting properly.')
-            env.logger.trace(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
+            env.logger.error(f'WORKER {self.name} ({os.getpid()}) quits after receiving None.')
             return False
         elif not work: # an empty task {}
             time.sleep(0.1)
             return True
 
-        env.logger.trace(
-            f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives request {short_repr(work)} with master port {self._master_ports[self._stack_idx]}')
+        env.logger.error(
+            f'WORKER {self.name} ({os.getpid()}, level {self._stack_idx}) receives {self._type_of_work(work)} request {self._name_of_work(work)} with master port {self._master_ports[self._stack_idx]}')
 
         if 'task' in work:
             self.run_substep(work)
+            env.logger.error(
+                f'WORKER {self.name} ({os.getpid()}) completes substep {self._name_of_work(work)}')
             return True
 
         master_port = work['config']['sockets']['master_port']
@@ -189,8 +207,8 @@ class SoS_Worker(mp.Process):
                     self.pop_env()
         except StopIteration as e:
             pass
-        env.logger.trace(
-            f'WORKER {self.name} completes request {short_repr(work)}')
+        env.logger.error(
+            f'WORKER {self.name} ({os.getpid()}) completes request {self._type_of_work(work)} request {self._name_of_work(work)}')
         return True
 
     def run_workflow(self, workflow_id, wf, targets, args, shared, config, **kwargs):
@@ -306,8 +324,8 @@ class WorkerManager(object):
         self.start()
 
     def report(self, msg):
-        #return
-        env.logger.debug(f'{msg.upper()}: {self._num_workers} workers, {self._n_requested} requested, {self._n_processed} processed')
+        ##return
+        env.logger.warning(f'{msg.upper()}: {self._num_workers} workers, {len(self._blocking_ports)} blocking, {self._n_requested} requested, {self._n_processed} processed')
 
     def add_request(self, msg_type, msg):
         self._n_requested += 1
@@ -321,14 +339,15 @@ class WorkerManager(object):
 
         # a blocking nested workflow will not yeild, so we will have to create a separate process for it
         # to prevent it from using a workers.
-        if 'blocking' in msg and msg['blocking']:
+        blocking = 'blocking' in msg and msg['blocking']
+        if blocking:
             self._max_workers += 1
             self._blocking_ports.add(port)
-            env.logger.debug(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
+            env.logger.error(f'Increasing maximum number of workers to {self._max_workers} to accommodate a blocking subworkflow.')
 
         # start a worker is necessary (max_procs could be incorrectly set to be 0 or less)
         # if we are just starting, so do not start two workers
-        if self._n_processed > 0 and not self._available_ports and self._num_workers < self._max_workers:
+        if blocking or (self._n_processed > 0 and not self._available_ports and self._num_workers < self._max_workers):
             self.start()
 
     def worker_available(self):
@@ -358,7 +377,7 @@ class WorkerManager(object):
         elif any(port in self._claimed_ports for port in ports):
             # the port is claimed, but the real message is not yet available
             self._worker_backend_socket.send_pyobj({})
-            # self.report(f'pending with claimed {port}')
+            self.report(f'pending with claimed {ports}')
         elif self._substep_requests:
             # port is not claimed, free to use for substep worker
             msg = self._substep_requests.pop()
@@ -373,14 +392,14 @@ class WorkerManager(object):
         else:
             if any(port in self._blocking_ports for port in ports):
                 self._max_workers -= 1
-                env.logger.debug(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
+                env.logger.error(f'Reduce maximum number of workers to {self._max_workers} after completion of a blocking subworkflow.')
                 for port in ports:
                     if port in self._blocking_ports:
                         self._blocking_ports.remove(port)
             # the port will be available for others to use
             self._available_ports.add(ports[0])
             self._worker_backend_socket.send_pyobj({})
-            # self.report(f'pending with port {port}')
+            self.report(f'pending with port {ports}')
 
     def start(self):
         worker = SoS_Worker(env.config)
