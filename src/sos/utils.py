@@ -192,6 +192,9 @@ class WorkflowDict(object):
     def dict(self):
         return self._dict
 
+    def clear(self):
+        self._dict.clear()
+
     def set(self, key, value):
         '''A short cut to set value to key without triggering any logging
         or warning message.'''
@@ -339,8 +342,6 @@ class RuntimeEnvironments(object):
         # parameters of the workflow, which will be handled differently
         self.parameter_vars = set()
         #
-        # maximum number of concurrent jobs
-        self.running_jobs: int = 0
         # this directory will be used by a lot of processes
         self.exec_dir = os.getcwd()
 

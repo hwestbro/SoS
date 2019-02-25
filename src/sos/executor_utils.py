@@ -19,7 +19,7 @@ from tokenize import generate_tokens
 
 from .targets import (RemovedTarget, file_target, sos_targets, sos_step,
     dynamic, sos_variable, RuntimeInfo, textMD5)
-from .utils import env, short_repr, format_HHMMSS, expand_size
+from .utils import env, short_repr, format_HHMMSS, expand_size, load_config_files
 from .eval import SoS_eval, SoS_exec, stmtHash
 from ._version import __version__
 from .tasks import TaskParams
@@ -358,3 +358,51 @@ def verify_input(ignore_internal_targets=False):
             if not target.target_exists('target') and not \
                 (ignore_internal_targets and isinstance(target, (sos_variable, sos_step))):
                 raise RemovedTarget(target)
+
+
+class KeepOnlyImportAndDefine(ast.NodeTransformer):
+    def __init__(self):
+        self.level = 0
+
+    def generic_visit(self, node):
+        self.level += 1
+        if self.level == 2 and not isinstance(node, (ast.Import, ast.FunctionDef, ast.ClassDef)):
+            print(f'remove {node}')
+            ret = None
+        else:
+            ret = super(KeepOnlyImportAndDefine, self).generic_visit(node)
+        self.level -= 1
+        return ret
+
+def analyze_global_section(global_def):
+    # find all import and function definition ...
+    env.sos_dict.clear()
+    env.sos_dict.set('SOS_VERSION', __version__)
+    # first load CONFIG, this will create CONFIG
+    load_config_files()
+    # import runtime
+    SoS_exec('from sos.runtime import *')
+    sos_keys = set(env.sos_dict.keys())
+
+    # run only definitions
+    transformer = KeepOnlyImportAndDefine()
+    tree = ast.parse(global_def)
+    sub_stmt = transformer.visit(tree)
+    exec(compile(sub_stmt, filename="<ast>", mode="exec"),
+        env.sos_dict._dict)
+    def_keys = set(env.sos_dict.keys()) - sos_keys
+
+    try:
+        SoS_exec(global_def)
+    except Exception as e:
+        raise RuntimeError('Failed to execute global statement {global_def}: {e}')
+    #
+    global_keys = set(env.sos_dict.keys()) - sos_keys - def_keys
+    for key in global_keys:
+        val = env.sos_dict[key]
+        if not pickleable(val, key):
+            raise ValueError(f'Unacceptable variable {key} with unpickleable value.')
+    #
+    global_keys.add('SOS_VERSION')
+    global_keys.add('CONFIG')
+    return sub_stmt, pickledumps({k:env.sos_dict[k] for k in global_keys})
