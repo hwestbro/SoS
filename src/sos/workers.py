@@ -25,6 +25,33 @@ from .utils import (WorkflowDict, env, get_traceback, load_config_files,
 def signal_handler(*args, **kwargs):
     raise ProcessKilled()
 
+class Runner(object):
+    def __init__(self, runner):
+        self._runner = runner
+        self._poller = 0
+
+    def run_until_waiting(self):
+        try:
+            # if poller is not initialized, run the runner to get the first poller
+            if self._poller == 0:
+                self._poller = next(self._runner)
+
+            while True:
+                if self._poller is None:
+                    self._poller = self._runner.send(None)
+                    continue
+
+                if self._poller.poll(200):
+                    self._poller = self._runner.send(None)
+                    continue
+
+                # the poller is not ready, let us break
+                return False
+        except StopIteration as e:
+            return True
+
+
+
 class SoS_Worker(mp.Process):
     '''
     Worker process to process SoS step or workflow in separate process.
@@ -56,6 +83,7 @@ class SoS_Worker(mp.Process):
         self._master_sockets = []
         self._master_ports = []
         self._stack_idx = 0
+
 
     def reset_dict(self):
         env.sos_dict = WorkflowDict()
@@ -187,29 +215,12 @@ class SoS_Worker(mp.Process):
             env.master_socket = self._master_sockets[self._stack_idx]
 
         # step and workflow can yield
-        runner = self.run_step(**work) if 'section' in work else self.run_workflow(**work)
-        try:
-            poller = next(runner)
-            while True:
-                # if request is None, it is a normal "break" and
-                # we do not need to jump off
-                if poller is None:
-                    poller = runner.send(None)
-                    continue
-
-                while True:
-                    if poller.poll(200):
-                        poller = runner.send(None)
-                        break
-                    # now let us ask if the master has something else for us
-                    self.push_env()
-                    self._process_job()
-                    self.pop_env()
-        except StopIteration as e:
-            pass
-        env.logger.trace(
-            f'WORKER {self.name} ({os.getpid()}) completes request {self._type_of_work(work)} request {self._name_of_work(work)}')
-        return True
+        runner = Runner(self.run_step(**work) if 'section' in work else self.run_workflow(**work))
+        res = runner.run_until_waiting()
+        if res:
+            env.logger.trace(
+                f'WORKER {self.name} ({os.getpid()}) completes request {self._type_of_work(work)} request {self._name_of_work(work)}')
+        return runner
 
     def run_workflow(self, workflow_id, wf, targets, args, shared, config, **kwargs):
         #
