@@ -134,18 +134,6 @@ class Undetermined(object):
         return self
 
 
-class sos_namespace_(object):
-    '''A namespace that is created by evaluating statements
-    and use the results as attributes of the object.'''
-
-    def __init__(self, stmts: str) -> None:
-        # we need to define functions defined by sos ...
-        exec('from sos.runtime import *', self.__dict__)
-        # the results of the statments will be saved as
-        # attribute of this object.
-        SoS_exec(stmts, _dict=self.__dict__)
-
-
 class on_demand_options(object):
     '''Expression that will be evaluated upon request.'''
 

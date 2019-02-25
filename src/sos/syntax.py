@@ -262,40 +262,6 @@ _SOS_OPTIONS_TMPL = r'''                # %set_options
     )?
     '''
 
-_SOS_INCLUDE_TMPL = r'''
-    ^%                                  # from start of line
-    include\s+                          # keyword
-    (?P<sos_files>
-    [a-zA-Z][a-zA-Z0-9_.]*              # filename
-    (\s+as\s+
-    [a-zA-Z][a-zA-Z0-9_]*)?             # optional as ...
-    (\s*,\s*
-    [a-zA-Z][a-zA-Z0-9_.]*
-    (\s+as\s+
-    [a-zA-Z][a-zA-Z0-9_]*)?             # optional as ...
-    )*)                                 # or more filename
-    \s*$
-    '''
-
-_SOS_FROM_INCLUDE_TMPL = r'''
-    ^%                                  # from start of line
-    from
-    \s+
-    (?P<sos_file>
-    [a-zA-Z][a-zA-Z0-9_.]*)\s+          # filename
-    include\s+                          # include
-    (?P<names>
-    (\*|
-    [a-zA-Z][a-zA-Z0-9_]*               # workflow as aslias
-    (\s+as\s+
-    [a-zA-Z][a-zA-Z0-9_]*)?
-    (\s*,\s*                            # parate by ,
-    [a-zA-Z][a-zA-Z0-9_]*               # additional workflow as aslias
-    (\s+as\s+
-    [a-zA-Z][a-zA-Z0-9_]*)?
-    )*))
-    \s*$
-    '''
 
 _SOS_AS_TMPL = r'''
     (?P<name>[a-zA-Z][a-zA-Z0-9_]*)     # name of item
@@ -360,13 +326,10 @@ SOS_FORMAT_VERSION = LazyRegex(_FORMAT_VERSION_TMPL, re.VERBOSE)
 SOS_DIRECTIVE = LazyRegex(_DIRECTIVE_TMPL, re.VERBOSE)
 SOS_ASSIGNMENT = LazyRegex(_ASSIGNMENT_TMPL, re.VERBOSE)
 CONFIG_NAME = LazyRegex(_CONFIG_NAME, re.VERBOSE)
-SOS_AS = LazyRegex(_SOS_AS_TMPL, re.VERBOSE)
 SOS_STRU = LazyRegex(_SOS_STRU_TMPL, re.VERBOSE)
 SOS_MAGIC = LazyRegex(_SOS_MAGIC_TMPL, re.VERBOSE)
 SOS_OPTIONS = LazyRegex(_SOS_OPTIONS_TMPL, re.VERBOSE)
 SOS_CELL = LazyRegex(_SOS_CELL_TMPL, re.VERBOSE)
-SOS_INCLUDE = LazyRegex(_SOS_INCLUDE_TMPL, re.VERBOSE)
-SOS_FROM_INCLUDE = LazyRegex(_SOS_FROM_INCLUDE_TMPL, re.VERBOSE)
 SOS_CELL_LINE = LazyRegex(_SOS_CELL_LINE_TMPL, re.VERBOSE)
 INDENTED = LazyRegex(_INDENTED_TMPL, re.VERBOSE)
 SOS_WILDCARD = LazyRegex(_SOS_WILDCARD_TMPL, re.VERBOSE)
