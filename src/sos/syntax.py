@@ -256,20 +256,6 @@ _SOS_CELL_TMPL = r'''                   # %cell
     ^%cell(\s+.*)?
     '''
 
-_SOS_OPTIONS_TMPL = r'''                # %set_options
-    ^%set_options(\s+
-    (?P<options>.*)
-    )?
-    '''
-
-
-_SOS_AS_TMPL = r'''
-    (?P<name>[a-zA-Z][a-zA-Z0-9_]*)     # name of item
-    (\s+as\s+                           #  as
-    (?P<alias>
-    [a-zA-Z][a-zA-Z0-9_]*))?            # optional alias
-    '''
-
 _SOS_CELL_LINE_TMPL = r'''
     ^
     %cell(\s+                           # %cell
@@ -328,7 +314,6 @@ SOS_ASSIGNMENT = LazyRegex(_ASSIGNMENT_TMPL, re.VERBOSE)
 CONFIG_NAME = LazyRegex(_CONFIG_NAME, re.VERBOSE)
 SOS_STRU = LazyRegex(_SOS_STRU_TMPL, re.VERBOSE)
 SOS_MAGIC = LazyRegex(_SOS_MAGIC_TMPL, re.VERBOSE)
-SOS_OPTIONS = LazyRegex(_SOS_OPTIONS_TMPL, re.VERBOSE)
 SOS_CELL = LazyRegex(_SOS_CELL_TMPL, re.VERBOSE)
 SOS_CELL_LINE = LazyRegex(_SOS_CELL_LINE_TMPL, re.VERBOSE)
 INDENTED = LazyRegex(_INDENTED_TMPL, re.VERBOSE)

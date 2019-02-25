@@ -871,11 +871,8 @@ class SoS_Script:
             if SOS_MAGIC.match(line):
                 continue
 
-            if SOS_STRU.match(line):
-                mo = SOS_CELL.match(line)
-                if mo:
-                    continue
-
+            if SOS_CELL.match(line):
+                continue
 
             # comments in SoS scripts are mostly informative
             if line.startswith('#'):
