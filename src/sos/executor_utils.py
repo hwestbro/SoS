@@ -6,6 +6,7 @@
 #
 # Utility functions used by various executors.
 #
+import ast
 import os
 import sys
 import re
