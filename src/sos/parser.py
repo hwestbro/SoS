@@ -1174,11 +1174,9 @@ class SoS_Script:
             raise parsing_errors
         #
         for section in self.sections:
-            # for nested / included sections, we need to keep their own global definition
-            if '.' not in section.names[0][0]:
-                section.global_def = self.global_def
-                section.global_parameters = global_parameters
-                section.parameters.update(global_parameters)
+            section.global_def = self.global_def
+            section.global_parameters = global_parameters
+            section.parameters.update(global_parameters)
             #
             section.md5 = textMD5(section.get_tokens())
 
