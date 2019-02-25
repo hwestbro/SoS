@@ -30,8 +30,7 @@ class SoS_Worker(mp.Process):
     Worker process to process SoS step or workflow in separate process.
     '''
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, args: Optional[Any] = None,
-            **kwargs) -> None:
+    def __init__(self, config: Optional[Dict[str, Any]] = None, **kwargs) -> None:
         '''
 
         config:
@@ -50,32 +49,10 @@ class SoS_Worker(mp.Process):
         #
         self.config = config
 
-        self.args = [] if args is None else args
-
         # there can be multiple jobs for this worker, each using their own port and socket
         self._master_sockets = []
         self._master_ports = []
         self._stack_idx = 0
-
-    def reset_dict(self):
-        env.sos_dict = WorkflowDict()
-        env.parameter_vars.clear()
-
-        env.sos_dict.set('__args__', self.args)
-        # initial values
-        env.sos_dict.set('SOS_VERSION', __version__)
-        env.sos_dict.set('__step_output__', sos_targets())
-
-        # load configuration files
-        load_config_files(env.config['config_file'])
-
-        SoS_exec('import os, sys, glob', None)
-        SoS_exec('from sos.runtime import *', None)
-
-        if isinstance(self.args, dict):
-            for key, value in self.args.items():
-                if not key.startswith('__'):
-                    env.sos_dict.set(key, value)
 
     def run(self):
         # env.logger.warning(f'Worker created {os.getpid()}')
@@ -217,9 +194,11 @@ class SoS_Worker(mp.Process):
         # get workflow, args, shared, and config
         from .workflow_executor import Base_Executor
 
-        self.args = args
+        # Execute global namespace. The reason why this is executed outside of
+        # step is that the content of the dictioary might be overridden by context
+        prepare_env(wf.global_def, wf.global_vars)
+
         env.config.update(config)
-        self.reset_dict()
         # we are in a separate process and need to set verbosity from workflow config
         # but some tests do not provide verbosity
         env.verbosity = config.get('verbosity', 2)
@@ -251,9 +230,6 @@ class SoS_Worker(mp.Process):
         env.config.update(config)
         env.verbosity = verbosity
         #
-        self.args = args
-        self.reset_dict()
-
         # Execute global namespace. The reason why this is executed outside of
         # step is that the content of the dictioary might be overridden by context
         # variables.

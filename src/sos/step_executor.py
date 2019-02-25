@@ -1165,7 +1165,6 @@ class Base_Step_Executor:
                                 # step_output: needed only when it is undetermined
                                 # step_input: not needed
                                 # _input, _output, _depends, _index: needed
-                                # __args__ for the processing of parameters
                                 # step_name: for debug scripts
                                 # step_id, workflow_id: for reporting to controller
                                 # '__signature_vars__' to be used for signature creation
@@ -1178,11 +1177,6 @@ class Base_Step_Executor:
                                      'step_output', 'step_name',
                                       '_runtime', 'step_id', 'workflow_id', '__num_groups__',
                                       '__signature_vars__'}
-                                # If substep does not have any parameter, stop passing
-                                # __args__ to substeps because they can be large #1185
-                                if self.step.substep_parameters:
-                                    proc_vars.add('__args__')
-
                                 self.proc_results.append({})
                                 self.submit_substep(dict(stmt=statement[1],
                                     global_def=self.step.global_def,
