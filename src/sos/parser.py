@@ -1225,19 +1225,7 @@ class SoS_Script:
         elif wf_name not in self.workflows and wf_name != 'default':
             raise ValueError(
                 f'Workflow {wf_name} is undefined. Available workflows are: {", ".join(self.workflows)}')
-        # do not send extra parameters of ...
-        #sections = []
-        # for section in self.sections:
-        #    # skip, skip=True, skip=1 etc are all allowed.
-        #    if 'provides' in section.options or 'shared' in section.options:
-        #        # section global is shared by all workflows
-        #        sections.append(section)
-        #        continue
-        #    for name, index, _ in section.names:
-        #        # exact match or filename like match if name contains * etc
-        #        if fnmatch.fnmatch(wf_name, name):
-        #            sections.append(section)
-        #            break
+
         return SoS_Workflow(self.content, wf_name, allowed_steps, self.sections, self.global_def)
 
     def print_help(self, script_name: str):
