@@ -347,7 +347,7 @@ def analyze_section(section: SoS_Step, default_input: Optional[sos_targets] = No
     # use a fresh env for analysis
     env.switch(1)
     try:
-        prepare_env(section)
+        prepare_env(section.global_def, section.global_vars)
 
         env.sos_dict.set('step_name', section.step_name())
         env.sos_dict.set('__null_func__', __null_func__)

@@ -126,15 +126,15 @@ def get_traceback_msg(e):
     else:
         return f'{error_class}: {detail}'
 
-def prepare_env(section):
+def prepare_env(gdef, gvars):
     '''clear current sos_dict, execute global_def (definitions and imports),
     and inject global variables'''
     env.sos_dict.clear()
 
-    if section.global_def:
-        exec(compile(section.global_def, filename="<ast>", mode="exec"),
+    if gdef:
+        exec(compile(gdef, filename="<ast>", mode="exec"),
             env.sos_dict._dict)
-    env.sos_dict.quick_update(section.global_vars)
+    env.sos_dict.quick_update(gvars)
 
 def statementMD5(stmts):
     def _get_tokens(statement):
@@ -146,7 +146,7 @@ def statementMD5(stmts):
             tokens.extend(_get_tokens(stmt))
     return textMD5(' '.join(tokens))
 
-def create_task(global_def, task_stmt, task_params):
+def create_task(global_def, global_vars, task_stmt, task_params):
     env.sos_dict.set('_runtime', {})
     if task_params:
         args, kwargs = SoS_eval(f'__null_func__({task_params})',

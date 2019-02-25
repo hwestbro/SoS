@@ -1186,6 +1186,7 @@ class Base_Step_Executor:
                                 self.proc_results.append({})
                                 self.submit_substep(dict(stmt=statement[1],
                                     global_def=self.step.global_def,
+                                    global_vars=self.step.global_vars,
                                     task=self.step.task,
                                     task_params=self.step.task_params,
                                     proc_vars=env.sos_dict.clone_selected_vars(proc_vars),
@@ -1369,8 +1370,8 @@ class Base_Step_Executor:
                 #
                 self.log('task')
                 try:
-                    task_id, taskdef, task_vars = create_task(self.step.global_def, self.step.task,
-                        self.step.task_params)
+                    task_id, taskdef, task_vars = create_task(self.step.global_def,
+                        self.step.global_vars, self.step.task, self.step.task_params)
                     task = self.submit_task(
                         {'index': env.sos_dict['_index'],
                         'task_id': task_id,
