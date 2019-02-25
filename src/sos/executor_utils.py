@@ -126,25 +126,15 @@ def get_traceback_msg(e):
     else:
         return f'{error_class}: {detail}'
 
-def prepare_env(global_def='', extra_dict={}):
-    # initial values
-    env.sos_dict.set('SOS_VERSION', __version__)
-    try:
-        # global def could fail due to execution on remote host...
-        # we also execute global_def way before others and allows variables set by
-        # global_def be overwritten by other passed variables
-        #
-        # note that we do not handle parameter in tasks because values should already be
-        # in sos_task dictionary
-        gd = strip_param_defs(global_def)
-        env.sos_dict.quick_update(extra_dict)
-        SoS_exec('''\
-import os, sys
-from sos.runtime import *
-''' + gd)
-    except Exception as e:
-        env.logger.warning(
-            f'Failed to execute global definition {short_repr(gd)}: {e}')
+def prepare_env(section):
+    '''clear current sos_dict, execute global_def (definitions and imports),
+    and inject global variables'''
+    env.sos_dict.clear()
+
+    if section.global_def:
+        exec(compile(section.global_def, filename="<ast>", mode="exec"),
+            env.sos_dict._dict)
+    env.sos_dict.quick_update(section.global_vars)
 
 def statementMD5(stmts):
     def _get_tokens(statement):
@@ -230,7 +220,7 @@ def create_task(global_def, task_stmt, task_params):
     taskdef = TaskParams(
         name='{} (index={})'.format(
             env.sos_dict['step_name'], env.sos_dict['_index']),
-        global_def=global_def,
+        global_def=(global_def, global_vars),
         task=task_stmt,          # task
         sos_dict=task_vars,
         tags=task_tags
@@ -360,50 +350,3 @@ def verify_input(ignore_internal_targets=False):
                 (ignore_internal_targets and isinstance(target, (sos_variable, sos_step))):
                 raise RemovedTarget(target)
 
-
-class KeepOnlyImportAndDefine(ast.NodeTransformer):
-    def __init__(self):
-        self.level = 0
-
-    def generic_visit(self, node):
-        self.level += 1
-        if self.level == 2 and not isinstance(node, (ast.Import, ast.FunctionDef, ast.ClassDef)):
-            print(f'remove {node}')
-            ret = None
-        else:
-            ret = super(KeepOnlyImportAndDefine, self).generic_visit(node)
-        self.level -= 1
-        return ret
-
-def analyze_global_section(global_def):
-    # find all import and function definition ...
-    env.sos_dict.clear()
-    env.sos_dict.set('SOS_VERSION', __version__)
-    # first load CONFIG, this will create CONFIG
-    load_config_files()
-    # import runtime
-    SoS_exec('from sos.runtime import *')
-    sos_keys = set(env.sos_dict.keys())
-
-    # run only definitions
-    transformer = KeepOnlyImportAndDefine()
-    tree = ast.parse(global_def)
-    sub_stmt = transformer.visit(tree)
-    exec(compile(sub_stmt, filename="<ast>", mode="exec"),
-        env.sos_dict._dict)
-    def_keys = set(env.sos_dict.keys()) - sos_keys
-
-    try:
-        SoS_exec(global_def)
-    except Exception as e:
-        raise RuntimeError('Failed to execute global statement {global_def}: {e}')
-    #
-    global_keys = set(env.sos_dict.keys()) - sos_keys - def_keys
-    for key in global_keys:
-        val = env.sos_dict[key]
-        if not pickleable(val, key):
-            raise ValueError(f'Unacceptable variable {key} with unpickleable value.')
-    #
-    global_keys.add('SOS_VERSION')
-    global_keys.add('CONFIG')
-    return sub_stmt, pickledumps({k:env.sos_dict[k] for k in global_keys})

@@ -20,7 +20,7 @@ from threading import Event
 
 from ._version import __version__
 from .dag import SoS_DAG
-from .eval import SoS_exec
+from .eval import SoS_exec, analyze_global_statements
 from .hosts import Host
 from .parser import SoS_Workflow
 from .pattern import extract_pattern
@@ -222,6 +222,14 @@ class Base_Executor:
 
         env.config['workflow_id'] = self.md5
         env.sos_dict.set('workflow_id', self.md5)
+        #
+        # prepare global definition and variables
+        global_def, global_vars = analyze_global_statements(self.workflow.global_stmts)
+        self.workflow.global_def = global_def
+        self.workflow_global_vars = global_vars
+        for section in self.workflow.sections:
+            section.global_def = global_def
+            section.global_vars = global_vars
 
     def write_workflow_info(self):
         # if this is the outter most workflow, master)id should have =

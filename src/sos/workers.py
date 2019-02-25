@@ -17,7 +17,7 @@ from ._version import __version__
 from .controller import (close_socket, connect_controllers, create_socket,
                          disconnect_controllers)
 from .eval import SoS_exec
-from .executor_utils import kill_all_subprocesses
+from .executor_utils import kill_all_subprocesses, prepare_env
 from .targets import sos_targets
 from .utils import (WorkflowDict, env, get_traceback, load_config_files,
                     short_repr, ProcessKilled)
@@ -257,14 +257,7 @@ class SoS_Worker(mp.Process):
         # Execute global namespace. The reason why this is executed outside of
         # step is that the content of the dictioary might be overridden by context
         # variables.
-        try:
-            SoS_exec(section.global_def)
-        except subprocess.CalledProcessError as e:
-            raise RuntimeError(e.stderr)
-        except RuntimeError:
-            if env.verbosity > 2:
-                sys.stderr.write(get_traceback())
-            raise
+        prepare_env(section)
 
         # clear existing keys, otherwise the results from some random result
         # might mess with the execution of another step that does not define input

@@ -225,7 +225,7 @@ class SoS_Step:
         self.parameters: Dict = {}
         self.substep_parameters: Set = set()
         # step processes
-        self.global_def = ''
+        self.global_stmts = ''
         self.task = ''
         self.task_params = ''
         self.last_step = None
@@ -578,13 +578,13 @@ class SoS_Workflow:
     '''A SoS workflow with multiple steps. It is created from multiple sections of a SoS script
     and consists of multiple SoS_Step.'''
 
-    def __init__(self, content: 'SoS_ScriptContent', workflow_name: str, allowed_steps: Optional[str], sections: List[SoS_Step], global_def: str) -> None:
+    def __init__(self, content: 'SoS_ScriptContent', workflow_name: str, allowed_steps: Optional[str], sections: List[SoS_Step], global_stmts: str) -> None:
         '''create a workflow from its name and a list of SoS_Sections (using name matching)'''
         self.content = content
         self.name = workflow_name if workflow_name else 'default'
         self.sections: List = []
         self.auxiliary_sections: List = []
-        self.global_def = global_def
+        self.global_stmts = global_stmts
         #
         for section in sections:
             for name, index, alias in section.names:
@@ -779,7 +779,7 @@ class SoS_Script:
             self.sos_script = '<string>'
             self.content = SoS_ScriptContent(content, None)
         # save a parsed version of the script for displaying purpose only
-        self.global_def = ''
+        self.global_stmts = ''
 
         self.description = []
         self._last_comment = ''
@@ -1152,7 +1152,7 @@ class SoS_Script:
                 self.sections[-1].statements.extend(section.statements)
                 self.sections[-1].task = section.task
                 self.sections[-1].task_params = section.task_params
-                self.global_def = ''
+                self.global_stmts = ''
                 global_parameters.update(section.parameters)
             # The sections should have been finalized so there is no need to finalize
             # again. In particular, finalizing a section would reset existing task #833
@@ -1165,7 +1165,7 @@ class SoS_Script:
                         parsing_errors.append(cursect.lineno, f'{statement[1]}:{statement[2]}',
                                               'Global section cannot contain sos input, ouput, and task statements')
                     else:
-                        self.global_def += statement[1]
+                        self.global_stmts += statement[1]
                 global_parameters.update(sec.parameters)
         # remove the global section after inserting it to each step of the process
         self.sections = [x for x in self.sections if not x.is_global]
@@ -1174,7 +1174,7 @@ class SoS_Script:
             raise parsing_errors
         #
         for section in self.sections:
-            section.global_def = self.global_def
+            section.global_stmts = self.global_stmts
             section.global_parameters = global_parameters
             section.parameters.update(global_parameters)
             #
@@ -1185,7 +1185,7 @@ class SoS_Script:
         This function might be called recursively because of nested
         workflow.'''
         if workflow_name is None and not use_default:
-            return SoS_Workflow(self.content, '', '', self.sections, self.global_def)
+            return SoS_Workflow(self.content, '', '', self.sections, self.global_stmts)
         allowed_steps = None
         if not workflow_name:
             wf_name = ''
@@ -1226,7 +1226,7 @@ class SoS_Script:
             raise ValueError(
                 f'Workflow {wf_name} is undefined. Available workflows are: {", ".join(self.workflows)}')
 
-        return SoS_Workflow(self.content, wf_name, allowed_steps, self.sections, self.global_def)
+        return SoS_Workflow(self.content, wf_name, allowed_steps, self.sections, self.global_stmts)
 
     def print_help(self, script_name: str):
         '''print a help message from the script'''
