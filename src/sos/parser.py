@@ -20,8 +20,8 @@ from uuid import UUID, uuid4
 
 from .eval import on_demand_options
 from .syntax import (INDENTED, SOS_AS, SOS_CELL, SOS_DIRECTIVE, SOS_DIRECTIVES,
-                     SOS_ELIF, SOS_ELSE, SOS_ENDIF, SOS_FORMAT_LINE,
-                     SOS_FORMAT_VERSION, SOS_FROM_INCLUDE, SOS_IF, SOS_INCLUDE,
+                     SOS_FORMAT_LINE,
+                     SOS_FORMAT_VERSION, SOS_FROM_INCLUDE, SOS_INCLUDE,
                      SOS_MAGIC, SOS_SECTION_HEADER, SOS_SECTION_NAME,
                      SOS_SECTION_OPTION, SOS_STRU, SOS_SUBWORKFLOW, SOS_ACTION_OPTIONS)
 from .targets import file_target, path, paths, sos_targets, textMD5
@@ -912,8 +912,6 @@ for __n, __v in {repr(name_map)}.items():
         cursect = None
         all_step_names = []
         #
-        condition_ignore = False
-        condition_met = None
         # this ParsingError is a container for all parsing errors. It will be
         # raised after parsing if there is at least one parsing error.
         parsing_errors = ParsingError(self.sos_script)
@@ -959,70 +957,6 @@ for __n, __v in {repr(name_map)}.items():
                 if mo:
                     continue
 
-                mo = SOS_IF.match(line)
-                if mo:
-                    cond = mo.group('condition')
-                    try:
-                        cond_value = eval(cond)
-                    except Exception as e:
-                        parsing_errors.append(
-                            lineno, line, f'Invalid expression {cond}: {e}')
-                        continue
-                    #
-                    if cond_value:
-                        condition_met = True
-                        condition_ignore = False
-                    else:
-                        condition_met = False
-                        condition_ignore = True
-                    continue
-
-                mo = SOS_ELIF.match(line)
-                if mo:
-                    if condition_met is None:
-                        parsing_errors.append(
-                            lineno, line, f'%elif not following %if: {line}')
-                        continue
-
-                    if condition_met:
-                        condition_ignore = True
-                        continue
-
-                    cond = mo.group('condition')
-                    try:
-                        cond_value = eval(cond)
-                    except Exception as e:
-                        parsing_errors.append(
-                            lineno, line, f'Invalid expression {cond}: {e}')
-
-                    if cond_value:
-                        condition_met = True
-                        condition_ignore = False
-                    continue
-
-                mo = SOS_ELSE.match(line)
-                if mo:
-                    if condition_met is None:
-                        parsing_errors.append(
-                            lineno, line, f'%else not following %if: {line}')
-                        continue
-
-                    condition_ignore = condition_met
-                    continue
-
-                mo = SOS_ENDIF.match(line)
-                if mo:
-                    condition_met = None
-                    condition_ignore = False
-                    continue
-
-                else:
-                    parsing_errors.append(
-                        lineno, line, f'Unrecognized SoS magic statement: {line}')
-                    continue
-
-            if condition_ignore:
-                continue
 
             # comments in SoS scripts are mostly informative
             if line.startswith('#'):
@@ -1285,10 +1219,6 @@ for __n, __v in {repr(name_map)}.items():
                 except Exception as e:
                     parsing_errors.append(
                         cursect.lineno, ''.join(cursect.values[:5]), str(e))
-
-        # non-matching %if ...
-        if condition_met is not None:
-            parsing_errors.append(lineno, '', 'Non-matching %if and %endif')
 
         #
         # if there is any parsing error, raise an exception

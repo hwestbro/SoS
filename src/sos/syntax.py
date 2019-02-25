@@ -252,28 +252,6 @@ _SOS_MAGIC_TMPL = r'''                  # SOS magic
     $
     '''
 
-_SOS_IF_TMPL = r'''                     # %if
-    ^%if\s+
-    (?P<condition>.+)
-    $
-    '''
-
-_SOS_ELIF_TMPL = r'''                   # %if
-    ^%elif\s+
-    (?P<condition>.+)
-    $
-    '''
-
-_SOS_ELSE_TMPL = r'''                   # %else
-    ^%else\s*
-    $
-    '''
-
-_SOS_ENDIF_TMPL = r'''                  # %endif
-    ^%endif\s*
-    $
-    '''
-
 _SOS_CELL_TMPL = r'''                   # %cell
     ^%cell(\s+.*)?
     '''
@@ -385,10 +363,6 @@ CONFIG_NAME = LazyRegex(_CONFIG_NAME, re.VERBOSE)
 SOS_AS = LazyRegex(_SOS_AS_TMPL, re.VERBOSE)
 SOS_STRU = LazyRegex(_SOS_STRU_TMPL, re.VERBOSE)
 SOS_MAGIC = LazyRegex(_SOS_MAGIC_TMPL, re.VERBOSE)
-SOS_IF = LazyRegex(_SOS_IF_TMPL, re.VERBOSE)
-SOS_ELIF = LazyRegex(_SOS_ELIF_TMPL, re.VERBOSE)
-SOS_ELSE = LazyRegex(_SOS_ELSE_TMPL, re.VERBOSE)
-SOS_ENDIF = LazyRegex(_SOS_ENDIF_TMPL, re.VERBOSE)
 SOS_OPTIONS = LazyRegex(_SOS_OPTIONS_TMPL, re.VERBOSE)
 SOS_CELL = LazyRegex(_SOS_CELL_TMPL, re.VERBOSE)
 SOS_INCLUDE = LazyRegex(_SOS_INCLUDE_TMPL, re.VERBOSE)
