@@ -1073,8 +1073,6 @@ def sos_handle_parameter_(key, defvalue):
     #
     parser.error = _parse_error
     parsed, _ = parser.parse_known_args(env.config['workflow_args'])
-    # env.config['__args__']['__args__'] if isinstance(
-    #    env.config['__args__'], dict) else env.config['__args__'])
     return ret_type(vars(parsed)[key]) if ret_type else vars(parsed)[key]
 
 # def is_locked(lockfile):
@@ -1163,6 +1161,8 @@ def load_config_files(filename=None):
             raise RuntimeError(
                 f'Failed to parse global sos config file {sos_config_file}, is it in YAML/JSON format? ({e})')
     # user-specified configuration file.
+    if filename is None and 'config_file' in env.config:
+        filename = env.config['config_file']
     if filename is not None:
         if not os.path.isfile(os.path.expanduser(filename)):
             raise RuntimeError(f'Config file {filename} not found')
@@ -1172,6 +1172,7 @@ def load_config_files(filename=None):
         except Exception as e:
             raise RuntimeError(
                 f'Failed to parse config file {filename}, is it in YAML/JSON format? ({e})')
+
     if 'user_name' not in cfg:
         cfg['user_name'] = getpass.getuser().lower()
     env.sos_dict.set('CONFIG', cfg)
