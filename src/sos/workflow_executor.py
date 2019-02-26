@@ -236,7 +236,7 @@ class Base_Executor:
         global_def, global_vars = analyze_global_statements(self.workflow.global_stmts)
         self.workflow.global_def = global_def
         self.workflow.global_vars = global_vars
-        for section in self.workflow.sections:
+        for section in self.workflow.sections + self.workflow.auxiliary_sections:
             section.global_def = global_def
             section.global_vars = global_vars
 
