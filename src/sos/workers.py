@@ -210,6 +210,7 @@ class SoS_Worker(mp.Process):
         env.verbosity = config.get('verbosity', 2)
         env.logger.debug(
             f'Worker {self.name} working on a workflow {workflow_id} with args {args}')
+
         executer = Base_Executor(wf, args=args, shared=shared, config=config)
         # we send the socket to subworkflow, which would send
         # everything directly to the master process, so we do not
@@ -239,7 +240,7 @@ class SoS_Worker(mp.Process):
         # Execute global namespace. The reason why this is executed outside of
         # step is that the content of the dictioary might be overridden by context
         # variables.
-        prepare_env(section.global_def, section.global_vars)
+        prepare_env(section.global_def, section.global_vars, env.config['workflow_vars'])
 
         # clear existing keys, otherwise the results from some random result
         # might mess with the execution of another step that does not define input
