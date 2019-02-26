@@ -204,10 +204,6 @@ class SoS_Worker(mp.Process):
         # get workflow, args, shared, and config
         from .workflow_executor import Base_Executor
 
-        # Execute global namespace. The reason why this is executed outside of
-        # step is that the content of the dictioary might be overridden by context
-        prepare_env(wf.global_def, wf.global_vars)
-
         env.config.update(config)
         # we are in a separate process and need to set verbosity from workflow config
         # but some tests do not provide verbosity
@@ -401,14 +397,14 @@ class WorkerManager(object):
                     self._available_ports.remove(port)
             self._worker_backend_socket.send_pyobj(None)
             self._num_workers -= 1
-            self.report(f'Kill standing {msg[1:]}')
+            self.report(f'Kill standing {ports}')
             self._last_pending_time.pop(ports[0])
         else:
             if level == 0 and ports[0] not in self._last_pending_time:
                 self._last_pending_time[ports[0]] = time.time()
             self._available_ports.add(ports[0])
             self._worker_backend_socket.send_pyobj({})
-            self.report(f'pending with port {ports}')
+            self.report(f'pending with port {ports} at level {level}')
 
     def start(self):
         worker = SoS_Worker(env.config)
