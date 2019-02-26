@@ -197,9 +197,6 @@ class Base_Executor:
         # in the master workflow, args is the command line argument and there is no workflow variables
         # workflow_args is already set by cmd_run but we set it again because the executor can be
         # started from tests.
-        env.config['workflow_vars'] = args if isinstance(args, dict) else {}
-        env.config['workflow_args'] = args if isinstance(args, list) else []
-
         self.args = [] if args is None else args
         if '__args__' not in self.args:
             # if there is __args__, this is a nested workflow and we do not test this.
@@ -216,7 +213,6 @@ class Base_Executor:
                     if not any(x in wf_pars for x in pars):
                         raise ValueError(
                             f'Undefined parameter {arg[2:]} for command line argument "{" ".join(args[idx:])}". Acceptable parameters are: {", ".join(wf_pars)}')
-
         self.shared = {} if shared is None else shared
         env.config.update(config)
         if env.config['config_file'] is not None:
@@ -231,6 +227,8 @@ class Base_Executor:
 
         env.config['workflow_id'] = self.md5
         env.sos_dict.set('workflow_id', self.md5)
+        env.config['workflow_vars'] = args if isinstance(args, dict) else {}
+        env.config['workflow_args'] = args if isinstance(args, list) else []
         #
         # prepare global definition and variables
         global_def, global_vars = analyze_global_statements(self.workflow.global_stmts)

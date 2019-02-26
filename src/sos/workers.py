@@ -200,6 +200,7 @@ class SoS_Worker(mp.Process):
         env.verbosity = config.get('verbosity', 2)
         env.logger.debug(
             f'Worker {self.name} working on a workflow {workflow_id} with args {args}')
+
         executer = Base_Executor(wf, args=args, shared=shared, config=config)
         # we send the socket to subworkflow, which would send
         # everything directly to the master process, so we do not
