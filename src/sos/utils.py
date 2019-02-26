@@ -966,16 +966,18 @@ def sos_handle_parameter_(key, defvalue):
     the environment. This makes the parameters variable.
     '''
     env.parameter_vars.add(key)
-    if not env.sos_dict['__args__']:
+    # if no argument is provided
+    if not env.config['workflow_args'] and not env.config['workflow_vars']:
         if isinstance(defvalue, type):
             raise ArgumentError(
                 f'Argument {key} of type {defvalue.__name__} is required')
-        return defvalue
-    # if the parameter is passed from action sos_run
-    if isinstance(env.sos_dict['__args__'], dict):
-        if key in env.sos_dict['__args__']:
-            return env.sos_dict['__args__'][key]
+        else:
+            return defvalue
     #
+    if env.config['workflow_vars']:
+        if key in env.config['workflow_vars']:
+            return env.config['workflow_vars'][key]
+
     parser = argparse.ArgumentParser(allow_abbrev=False)
     # thre is a possibility that users specify --cut-off instead of --cut_off for parameter
     # cut_off. It owuld be nice to allow both.
@@ -1070,8 +1072,9 @@ def sos_handle_parameter_(key, defvalue):
                                     default=defvalue)
     #
     parser.error = _parse_error
-    parsed, _ = parser.parse_known_args(env.sos_dict['__args__']['__args__'] if isinstance(
-        env.sos_dict['__args__'], dict) else env.sos_dict['__args__'])
+    parsed, _ = parser.parse_known_args(env.config['workflow_args'])
+    # env.config['__args__']['__args__'] if isinstance(
+    #    env.config['__args__'], dict) else env.config['__args__'])
     return ret_type(vars(parsed)[key]) if ret_type else vars(parsed)[key]
 
 # def is_locked(lockfile):

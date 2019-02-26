@@ -1466,6 +1466,36 @@ res1 = tt.gv
         self.assertEqual(env.sos_dict['res1'], 1)
         os.remove('inc.sos')
 
+    def testFromInclude(self):
+        '''Test include keyword'''
+        with open('inc.sos', 'w') as ts:
+            ts.write('''
+# a slave script to be included
+gv = 1
+[A_1]
+[A_2]
+[B]
+''')
+        script = SoS_Script('''
+%from inc include gv
+[0]
+''')
+        wf = script.workflow()
+        Base_Executor(wf).run(mode='dryrun')
+        Base_Executor(wf).run()
+        self.assertEqual(env.sos_dict['gv'], 1)
+        #
+        # include with alias
+        script = SoS_Script('''
+%from inc include gv as g
+res1 = g
+[0]
+''')
+        wf = script.workflow()
+        Base_Executor(wf).run(mode='dryrun')
+        Base_Executor(wf).run()
+        self.assertEqual(env.sos_dict['res1'], 1)
+
     def testCell(self):
         '''Test ignoring %cell'''
         SoS_Script('''

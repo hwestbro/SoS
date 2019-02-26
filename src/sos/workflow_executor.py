@@ -33,6 +33,7 @@ from .targets import (BaseTarget, RemovedTarget, UnavailableLock,
                       named_output)
 from .utils import (Error, WorkflowDict, env, get_traceback,
                     load_config_files, pickleable, short_repr)
+from .executor_utils import prepare_env
 
 __all__ = []
 
@@ -191,6 +192,14 @@ class Base_Executor:
     def __init__(self, workflow: Optional[SoS_Workflow] = None, args: Optional[Any] = None, shared: None = None,
                  config: Optional[Dict[str, Any]] = {}) -> None:
         self.workflow = workflow
+
+        # args serves as two purposes
+        # in the master workflow, args is the command line argument and there is no workflow variables
+        # workflow_args is already set by cmd_run but we set it again because the executor can be
+        # started from tests.
+        env.config['workflow_vars'] = args if isinstance(args, dict) else {}
+        env.config['workflow_args'] = args if isinstance(args, list) else []
+
         self.args = [] if args is None else args
         if '__args__' not in self.args:
             # if there is __args__, this is a nested workflow and we do not test this.
@@ -226,7 +235,7 @@ class Base_Executor:
         # prepare global definition and variables
         global_def, global_vars = analyze_global_statements(self.workflow.global_stmts)
         self.workflow.global_def = global_def
-        self.workflow_global_vars = global_vars
+        self.workflow.global_vars = global_vars
         for section in self.workflow.sections:
             section.global_def = global_def
             section.global_vars = global_vars
@@ -309,39 +318,15 @@ class Base_Executor:
             return textMD5(sig.getvalue())[:16]
 
     def reset_dict(self) -> None:
-        env.sos_dict = WorkflowDict()
-        self.init_dict()
 
-    def init_dict(self) -> None:
+        prepare_env(self.workflow.global_def, self.workflow.global_vars, env.config['workflow_vars'])
+
         env.parameter_vars.clear()
 
         env.sos_dict.set('workflow_id', self.md5)
         env.sos_dict.set('master_id', env.config['master_id'])
-        env.sos_dict.set('__args__', self.args)
-        # initial values
-        env.sos_dict.set('SOS_VERSION', __version__)
         env.sos_dict.set('__step_output__', sos_targets([]))
-
-        # load configuration files
-        load_config_files(env.config['config_file'])
-
-        SoS_exec('import os, sys, glob', None)
-        SoS_exec('from sos.runtime import *', None)
-
-        # excute global definition to get some basic setup
-        try:
-            SoS_exec(self.workflow.global_def)
-        except Exception:
-            if env.verbosity > 2:
-                sys.stderr.write(get_traceback())
-            raise
-
         env.sos_dict.quick_update(self.shared)
-
-        if isinstance(self.args, dict):
-            for key, value in self.args.items():
-                if not key.startswith('__'):
-                    env.sos_dict.set(key, value)
 
     def analyze_auxiliary_step(self, section):
         res = analyze_section(section, vars_and_output_only=True)
@@ -802,7 +787,7 @@ class Base_Executor:
                 # and node._node_index == runnable._node_index + 1:
                 node._context.update(env.sos_dict.clone_selected_vars(
                     node._context['__signature_vars__'] | node._context['__environ_vars__']
-                    | {'_input', '__step_output__', '__args__'}))
+                    | {'_input', '__step_output__'}))
             node._context.update(svar)
             if node._status == 'target_pending':
                 if all(x.target_exists('target') for x in node._pending_targets):

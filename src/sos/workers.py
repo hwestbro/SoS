@@ -194,10 +194,6 @@ class SoS_Worker(mp.Process):
         # get workflow, args, shared, and config
         from .workflow_executor import Base_Executor
 
-        # Execute global namespace. The reason why this is executed outside of
-        # step is that the content of the dictioary might be overridden by context
-        prepare_env(wf.global_def, wf.global_vars)
-
         env.config.update(config)
         # we are in a separate process and need to set verbosity from workflow config
         # but some tests do not provide verbosity
